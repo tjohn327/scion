@@ -477,6 +477,20 @@ func run(file string) error {
 	if err != nil {
 		log.Info("Failed to read static info", "err", err)
 	}
+	hpCfg := cs.HiddenPathConfigurator{
+		LocalIA:           topo.IA(),
+		Verifier:          verifier,
+		PathDB:            pathDB,
+		Dialer:            dialer,
+		FetcherConfig:     fetcherCfg,
+		IntraASTCPServer:  tcpServer,
+		InterASQUICServer: quicServer,
+	}
+	hpWriterCfg, err := hpCfg.Setup(cfg.PS.HiddenPathsCfg)
+	if err != nil {
+		return err
+	}
+
 	addressRewriter := nc.AddressRewriter(
 		&onehop.OHPPacketDispatcherService{
 			PacketDispatcherService: &snet.DefaultPacketDispatcherService{
@@ -513,11 +527,12 @@ func run(file string) error {
 		TopoProvider:    itopo.Provider(),
 		StaticInfo:      func() *beaconing.StaticInfoCfg { return staticInfo },
 
-		OriginationInterval:  cfg.BS.OriginationInterval.Duration,
-		PropagationInterval:  cfg.BS.PropagationInterval.Duration,
-		DRKeyEpochInterval:   cfg.DRKey.EpochDuration.Duration,
-		RegistrationInterval: cfg.BS.RegistrationInterval.Duration,
-		AllowIsdLoop:         isdLoopAllowed,
+		OriginationInterval:       cfg.BS.OriginationInterval.Duration,
+		PropagationInterval:       cfg.BS.PropagationInterval.Duration,
+		DRKeyEpochInterval:        cfg.DRKey.EpochDuration.Duration,
+		RegistrationInterval:      cfg.BS.RegistrationInterval.Duration,
+		HiddenPathRegistrationCfg: hpWriterCfg,
+		AllowIsdLoop:              isdLoopAllowed,
 	})
 	if err != nil {
 		serrors.WrapStr("starting periodic tasks", err)
