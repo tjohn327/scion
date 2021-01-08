@@ -17,8 +17,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -41,10 +39,7 @@ import (
 	"github.com/scionproto/scion/go/cs/segreq"
 	segreqgrpc "github.com/scionproto/scion/go/cs/segreq/grpc"
 	"github.com/scionproto/scion/go/lib/addr"
-	"github.com/scionproto/scion/go/lib/common"
-	libconfig "github.com/scionproto/scion/go/lib/config"
 	"github.com/scionproto/scion/go/lib/drkeystorage"
-	"github.com/scionproto/scion/go/lib/env"
 	"github.com/scionproto/scion/go/lib/fatal"
 	"github.com/scionproto/scion/go/lib/infra/infraenv"
 	"github.com/scionproto/scion/go/lib/infra/messenger"
@@ -56,11 +51,11 @@ import (
 	libmetrics "github.com/scionproto/scion/go/lib/metrics"
 	"github.com/scionproto/scion/go/lib/pathdb"
 	"github.com/scionproto/scion/go/lib/periodic"
-	"github.com/scionproto/scion/go/lib/prom"
 	"github.com/scionproto/scion/go/lib/serrors"
 	"github.com/scionproto/scion/go/lib/snet"
 	"github.com/scionproto/scion/go/lib/sock/reliable"
 	"github.com/scionproto/scion/go/lib/topology"
+	"github.com/scionproto/scion/go/pkg/app/launcher"
 	"github.com/scionproto/scion/go/pkg/command"
 	"github.com/scionproto/scion/go/pkg/cs"
 	"github.com/scionproto/scion/go/pkg/cs/drkey"
@@ -80,56 +75,29 @@ import (
 	"github.com/scionproto/scion/go/pkg/trust/renewal"
 )
 
+var globalCfg config.Config
+
 func main() {
-	var flags struct {
-		config string
+	application := launcher.Application{
+		TOMLConfig: &globalCfg,
+		ShortName:  "SCION Control Service",
+		// TODO(scrye): Deprecated additional sampler, remove once Anapaya/scion#5000 is in.
+		Samplers: []func(command.Pather) *cobra.Command{newSamplePolicy},
+		Main:     realMain,
 	}
-	executable := filepath.Base(os.Args[0])
-	cmd := &cobra.Command{
-		Use:           executable,
-		Short:         "SCION Control Service instance",
-		Example:       "  " + executable + " --config cs.toml",
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		Args:          cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(flags.config)
-		},
-	}
-	cmd.AddCommand(
-		command.NewCompletion(cmd),
-		command.NewSample(cmd,
-			command.NewSampleConfig(&config.Config{}),
-			newSamplePolicy,
-		),
-		command.NewVersion(cmd),
-	)
-	cmd.Flags().StringVar(&flags.config, "config", "", "Configuration file (required)")
-	cmd.MarkFlagRequired("config")
-	if err := cmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		os.Exit(1)
-	}
+	application.Run()
 }
 
-func run(file string) error {
-	fatal.Init()
-	cfg, err := setupBasic(file)
-	if err != nil {
-		return err
-	}
-	defer log.Flush()
-	defer env.LogAppStopped(common.CPService, cfg.General.ID)
-	defer log.HandlePanic()
+func realMain() error {
 	metrics := cs.NewMetrics()
 
-	intfs, err := setup(&cfg)
+	intfs, err := setup(&globalCfg)
 	if err != nil {
 		return err
 	}
 	topo := itopo.Get()
 
-	closer, err := cs.InitTracer(cfg.Tracing, cfg.General.ID)
+	closer, err := cs.InitTracer(globalCfg.Tracing, globalCfg.General.ID)
 	if err != nil {
 		return serrors.WrapStr("initializing tracer", err)
 	}
@@ -137,7 +105,7 @@ func run(file string) error {
 
 	revCache := storage.NewRevocationStorage()
 	defer revCache.Close()
-	pathDB, err := storage.NewPathStorage(cfg.PathDB)
+	pathDB, err := storage.NewPathStorage(globalCfg.PathDB)
 	if err != nil {
 		return serrors.WrapStr("initializing path storage", err)
 	}
@@ -145,10 +113,10 @@ func run(file string) error {
 	defer pathDB.Close()
 	nc := infraenv.NetworkConfig{
 		IA:                    topo.IA(),
-		Public:                topo.PublicAddress(addr.SvcCS, cfg.General.ID),
-		ReconnectToDispatcher: cfg.General.ReconnectToDispatcher,
+		Public:                topo.PublicAddress(addr.SvcCS, globalCfg.General.ID),
+		ReconnectToDispatcher: globalCfg.General.ReconnectToDispatcher,
 		QUIC: infraenv.QUIC{
-			Address: cfg.QUIC.Address,
+			Address: globalCfg.QUIC.Address,
 		},
 		SVCRouter: messenger.NewSVCRouter(itopo.Provider()),
 		SCMPHandler: snet.DefaultSCMPHandler{
@@ -169,30 +137,30 @@ func run(file string) error {
 		Dialer:   quicStack.Dialer,
 	}
 
-	trustDB, err := storage.NewTrustStorage(cfg.TrustDB)
+	trustDB, err := storage.NewTrustStorage(globalCfg.TrustDB)
 	if err != nil {
 		return serrors.WrapStr("initializing trust storage", err)
 	}
 	trustDB = trustmetrics.WrapDB(string(storage.BackendSqlite), trustDB)
 	defer trustDB.Close()
-	if err := cs.LoadTrustMaterial(cfg.General.ConfigDir, trustDB, log.Root()); err != nil {
+	if err := cs.LoadTrustMaterial(globalCfg.General.ConfigDir, trustDB, log.Root()); err != nil {
 		return err
 	}
 
-	beaconStore, isdLoopAllowed, err := loadBeaconStore(topo.Core(), topo.IA(), cfg)
+	beaconStore, isdLoopAllowed, err := loadBeaconStore(topo.Core(), topo.IA(), globalCfg)
 	if err != nil {
 		return serrors.WrapStr("initializing beacon store", err)
 	}
 	defer beaconStore.Close()
 
-	trustengineCache := cfg.TrustEngine.Cache.New()
+	trustengineCache := globalCfg.TrustEngine.Cache.New()
 	cacheHits := libmetrics.NewPromCounter(trustmetrics.CacheHitsTotal)
 	inspector := trust.CachingInspector{
 		Inspector: trust.DBInspector{
 			DB: trustDB,
 		},
 		CacheHits:          cacheHits,
-		MaxCacheExpiration: cfg.TrustEngine.Cache.Expiration,
+		MaxCacheExpiration: globalCfg.TrustEngine.Cache.Expiration,
 		Cache:              trustengineCache,
 	}
 	provider := trust.FetchingProvider{
@@ -209,7 +177,7 @@ func run(file string) error {
 		Verifier: trust.Verifier{
 			Engine:             provider,
 			CacheHits:          cacheHits,
-			MaxCacheExpiration: cfg.TrustEngine.Cache.Expiration,
+			MaxCacheExpiration: globalCfg.TrustEngine.Cache.Expiration,
 			Cache:              trustengineCache,
 		},
 	}
@@ -217,7 +185,7 @@ func run(file string) error {
 		IA:            topo.IA(),
 		PathDB:        pathDB,
 		RevCache:      revCache,
-		QueryInterval: cfg.PS.QueryInterval.Duration,
+		QueryInterval: globalCfg.PS.QueryInterval.Duration,
 		RPC: &segfetchergrpc.Requester{
 			Dialer: dialer,
 		},
@@ -306,26 +274,26 @@ func run(file string) error {
 
 	}
 
-	signer, err := cs.NewSigner(topo.IA(), trustDB, cfg.General.ConfigDir)
+	signer, err := cs.NewSigner(topo.IA(), trustDB, globalCfg.General.ConfigDir)
 	if err != nil {
 		return serrors.WrapStr("initializing AS signer", err)
 	}
 
 	var chainBuilder cstrust.ChainBuilder
 	if topo.CA() {
-		renewalDB, err := storage.NewRenewalStorage(cfg.RenewalDB)
+		renewalDB, err := storage.NewRenewalStorage(globalCfg.RenewalDB)
 		if err != nil {
 			return serrors.WrapStr("initializing renewal database", err)
 		}
 		defer renewalDB.Close()
-		if err := cs.LoadClientChains(renewalDB, cfg.General.ConfigDir); err != nil {
+		if err := cs.LoadClientChains(renewalDB, globalCfg.General.ConfigDir); err != nil {
 			return serrors.WrapStr("loading client certificate chains", err)
 		}
 		chainBuilder = cs.NewChainBuilder(
 			topo.IA(),
 			trustDB,
-			cfg.CA.MaxASValidity.Duration,
-			cfg.General.ConfigDir,
+			globalCfg.CA.MaxASValidity.Duration,
+			globalCfg.General.ConfigDir,
 		)
 		renewalServer := &cstrustgrpc.RenewalServer{
 			Verifier:     cstrustgrpc.RenewalRequestVerifierFunc(renewal.VerifyChainRenewalRequest),
@@ -342,7 +310,8 @@ func run(file string) error {
 			periodic.Func{
 				TaskName: "update client certificates from disk",
 				Task: func(ctx context.Context) {
-					if err := cs.LoadClientChains(renewalDB, cfg.General.ConfigDir); err != nil {
+					err := cs.LoadClientChains(renewalDB, globalCfg.General.ConfigDir)
+					if err != nil {
 						log.Debug("loading client certificate chains", "error", err)
 					}
 				},
@@ -376,20 +345,20 @@ func run(file string) error {
 	//DRKey feature
 	var drkeyServStore drkeystorage.ServiceStore
 	var quicTLSServer *grpc.Server
-	if cfg.DRKey.Enabled() {
-		masterKey, err := loadMasterSecret(cfg.General.ConfigDir)
+	if globalCfg.DRKey.Enabled() {
+		masterKey, err := loadMasterSecret(globalCfg.General.ConfigDir)
 		if err != nil {
 			return serrors.WrapStr("loading master secret in DRKey", err)
 		}
 		svFactory := drkey.NewSecretValueFactory(
-			masterKey.Key0, cfg.DRKey.EpochDuration.Duration)
-		drkeyDB, err := storage.NewDRKeyLvl1Storage(cfg.DRKey.DRKeyDB)
+			masterKey.Key0, globalCfg.DRKey.EpochDuration.Duration)
+		drkeyDB, err := storage.NewDRKeyLvl1Storage(globalCfg.DRKey.DRKeyDB)
 		if err != nil {
 			return serrors.WrapStr("initializing DRKey DB", err)
 		}
 		loader := trust.FileLoader{
-			CertFile: cfg.DRKey.CertFile,
-			KeyFile:  cfg.DRKey.KeyFile,
+			CertFile: globalCfg.DRKey.CertFile,
+			KeyFile:  globalCfg.DRKey.KeyFile,
 		}
 		tlsMgr := trust.NewTLSCryptoManager(loader, trustDB)
 		drkeyFetcher := drkeygrpc.DRKeyFetcher{
@@ -411,7 +380,7 @@ func run(file string) error {
 		drkeyService := &drkeygrpc.DRKeyServer{
 			LocalIA:    topo.IA(),
 			Store:      drkeyServStore,
-			AllowedDSs: cfg.DRKey.Delegation.ToMapPerHost(),
+			AllowedDSs: globalCfg.DRKey.Delegation.ToMapPerHost(),
 		}
 		srvConfig := &tls.Config{
 			InsecureSkipVerify:    true,
@@ -447,7 +416,7 @@ func run(file string) error {
 		IntraASTCPServer:  tcpServer,
 		InterASQUICServer: quicServer,
 	}
-	hpWriterCfg, err := hpCfg.Setup(cfg.PS.HiddenPathsCfg)
+	hpWriterCfg, err := hpCfg.Setup(globalCfg.PS.HiddenPathsCfg)
 	if err != nil {
 		return err
 	}
@@ -467,7 +436,7 @@ func run(file string) error {
 		}
 	}()
 
-	if cfg.DRKey.Enabled() {
+	if globalCfg.DRKey.Enabled() {
 		go func() {
 			defer log.HandlePanic()
 			if err := quicTLSServer.Serve(quicStack.TLSListener); err != nil {
@@ -476,19 +445,21 @@ func run(file string) error {
 		}()
 	}
 
-	err = cs.StartHTTPEndpoints(cfg.General.ID, cfg, signer, chainBuilder, cfg.Metrics)
+	err = cs.StartHTTPEndpoints(globalCfg.General.ID, globalCfg, signer, chainBuilder,
+		globalCfg.Metrics)
 	if err != nil {
 		return serrors.WrapStr("registering status pages", err)
 	}
-	ohpConn, err := cs.NewOneHopConn(topo.IA(), nc.Public, "", cfg.General.ReconnectToDispatcher)
+	ohpConn, err := cs.NewOneHopConn(topo.IA(), nc.Public, "",
+		globalCfg.General.ReconnectToDispatcher)
 	if err != nil {
 		return serrors.WrapStr("creating one-hop connection", err)
 	}
-	macGen, err := cs.MACGenFactory(cfg.General.ConfigDir)
+	macGen, err := cs.MACGenFactory(globalCfg.General.ConfigDir)
 	if err != nil {
 		return err
 	}
-	staticInfo, err := beaconing.ParseStaticInfoCfg(cfg.General.StaticInfoConfig())
+	staticInfo, err := beaconing.ParseStaticInfoCfg(globalCfg.General.StaticInfoConfig())
 	if err != nil {
 		log.Info("No static info file found. Static info settings disabled.", "err", err)
 	}
@@ -529,10 +500,10 @@ func run(file string) error {
 		TopoProvider:    itopo.Provider(),
 		StaticInfo:      func() *beaconing.StaticInfoCfg { return staticInfo },
 
-		OriginationInterval:       cfg.BS.OriginationInterval.Duration,
-		PropagationInterval:       cfg.BS.PropagationInterval.Duration,
-		DRKeyEpochInterval:        cfg.DRKey.EpochDuration.Duration,
-		RegistrationInterval:      cfg.BS.RegistrationInterval.Duration,
+		OriginationInterval:       globalCfg.BS.OriginationInterval.Duration,
+		PropagationInterval:       globalCfg.BS.PropagationInterval.Duration,
+		RegistrationInterval:      globalCfg.BS.RegistrationInterval.Duration,
+		DRKeyEpochInterval:        globalCfg.DRKey.EpochDuration.Duration,
 		HiddenPathRegistrationCfg: hpWriterCfg,
 		AllowIsdLoop:              isdLoopAllowed,
 	})
@@ -552,26 +523,7 @@ func run(file string) error {
 	}
 }
 
-func setupBasic(file string) (config.Config, error) {
-	var cfg config.Config
-	if err := libconfig.LoadFile(file, &cfg); err != nil {
-		return config.Config{}, serrors.WrapStr("loading config from file", err, "file", file)
-	}
-	cfg.InitDefaults()
-	if err := log.Setup(cfg.Logging); err != nil {
-		return config.Config{}, serrors.WrapStr("initialize logging", err)
-	}
-	prom.ExportElementID(cfg.General.ID)
-	if err := env.LogAppStarted(common.CPService, cfg.General.ID); err != nil {
-		return config.Config{}, err
-	}
-	return cfg, nil
-}
-
 func setup(cfg *config.Config) (*ifstate.Interfaces, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, serrors.WrapStr("validating config", err)
-	}
 	topo, err := topology.FromJSONFile(cfg.General.Topology())
 	if err != nil {
 		return nil, serrors.WrapStr("loading topology", err)
