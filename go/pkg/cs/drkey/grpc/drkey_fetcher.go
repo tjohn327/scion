@@ -31,7 +31,8 @@ import (
 )
 
 type Lvl1KeyGetter interface {
-	GetLvl1Key(ctx context.Context, srcIA addr.IA, req *dkpb.DRKeyLvl1Request) (*dkpb.DRKeyLvl1Response, error)
+	GetLvl1Key(ctx context.Context, srcIA addr.IA,
+		req *dkpb.DRKeyLvl1Request) (*dkpb.DRKeyLvl1Response, error)
 }
 
 type Lvl1KeyFetcher struct {
@@ -41,7 +42,8 @@ type Lvl1KeyFetcher struct {
 
 var _ Lvl1KeyGetter = (*Lvl1KeyFetcher)(nil)
 
-func (f Lvl1KeyFetcher) GetLvl1Key(ctx context.Context, srcIA addr.IA, req *dkpb.DRKeyLvl1Request) (*dkpb.DRKeyLvl1Response, error) {
+func (f Lvl1KeyFetcher) GetLvl1Key(ctx context.Context, srcIA addr.IA,
+	req *dkpb.DRKeyLvl1Request) (*dkpb.DRKeyLvl1Response, error) {
 	logger := log.FromCtx(ctx)
 
 	logger.Info("Resolving server", "srcIA", srcIA.String())
@@ -79,7 +81,7 @@ var _ csdrkey.Fetcher = (*DRKeyFetcher)(nil)
 func (f DRKeyFetcher) GetLvl1FromOtherCS(ctx context.Context,
 	srcIA, dstIA addr.IA, valTime time.Time) (drkey.Lvl1Key, error) {
 
-	lvl1req := ctrl.NewLvl1Req(dstIA, valTime)
+	lvl1req := ctrl.NewLvl1Req(valTime)
 	req, err := ctrl.Lvl1reqToProtoRequest(lvl1req)
 	if err != nil {
 		return drkey.Lvl1Key{},
@@ -91,14 +93,9 @@ func (f DRKeyFetcher) GetLvl1FromOtherCS(ctx context.Context,
 		return drkey.Lvl1Key{}, err
 	}
 
-	lvl1Key, err := ctrl.GetLvl1KeyFromReply(rep)
+	lvl1Key, err := ctrl.GetLvl1KeyFromReply(srcIA, dstIA, rep)
 	if err != nil {
 		return drkey.Lvl1Key{}, serrors.WrapStr("obtaining level 1 key from reply", err)
-	}
-
-	if !(lvl1Key.SrcIA.Equal(srcIA)) {
-		return drkey.Lvl1Key{}, serrors.New("Response srcIA does not match intended server IA",
-			"srcIA", lvl1Key.SrcIA.String(), "server IA", srcIA)
 	}
 
 	return lvl1Key, nil
