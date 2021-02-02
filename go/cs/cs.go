@@ -17,9 +17,12 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"net/http"
 	"path/filepath"
 	"time"
 
+	"github.com/go-chi/chi"
+	"github.com/go-chi/cors"
 	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/opentracing/opentracing-go"
@@ -58,6 +61,7 @@ import (
 	"github.com/scionproto/scion/go/pkg/app/launcher"
 	"github.com/scionproto/scion/go/pkg/command"
 	"github.com/scionproto/scion/go/pkg/cs"
+	"github.com/scionproto/scion/go/pkg/cs/api"
 	"github.com/scionproto/scion/go/pkg/cs/drkey"
 	drkeygrpc "github.com/scionproto/scion/go/pkg/cs/drkey/grpc"
 	cstrust "github.com/scionproto/scion/go/pkg/cs/trust"
@@ -67,6 +71,7 @@ import (
 	libgrpc "github.com/scionproto/scion/go/pkg/grpc"
 	cppb "github.com/scionproto/scion/go/pkg/proto/control_plane"
 	dpb "github.com/scionproto/scion/go/pkg/proto/discovery"
+	"github.com/scionproto/scion/go/pkg/service"
 	"github.com/scionproto/scion/go/pkg/storage"
 	"github.com/scionproto/scion/go/pkg/trust"
 	"github.com/scionproto/scion/go/pkg/trust/compat"
@@ -445,6 +450,28 @@ func realMain() error {
 		}()
 	}
 
+	if globalCfg.API.Addr != "" {
+		r := chi.NewRouter()
+		r.Use(cors.Handler(cors.Options{
+			AllowedOrigins: []string{"*"},
+		}))
+		server := api.Server{
+			CA:       chainBuilder,
+			Config:   service.NewConfigHandler(globalCfg),
+			Info:     service.NewInfoHandler(),
+			LogLevel: log.ConsoleLevel.ServeHTTP,
+			Signer:   signer,
+			Topology: itopo.TopologyHandler,
+		}
+		log.Info("Exposing API", "addr", globalCfg.API.Addr)
+		h := api.HandlerFromMux(&server, r)
+		go func() {
+			defer log.HandlePanic()
+			if err := http.ListenAndServe(globalCfg.API.Addr, h); err != nil {
+				fatal.Fatal(serrors.WrapStr("serving HTTP API", err))
+			}
+		}()
+	}
 	err = cs.StartHTTPEndpoints(globalCfg.General.ID, globalCfg, signer, chainBuilder,
 		globalCfg.Metrics)
 	if err != nil {
