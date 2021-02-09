@@ -36,14 +36,24 @@
       "/com_github_cloudflare_sidh/": ""
     }
   },
+  "stringintconv": {
+    "exclude_files": {
+      "/com_github_sergi_go_diff": "",
+      "/com_github_uber_jaeger_client_go": "",
+      "/com_github_google_gopacket": "",
+      "/com_github_antlr_antlr4": "",
+      "/net_starlark_go": ""
+    }
+  },
   "unreachable": {
     "exclude_files": {
       "gazelle/pathtools/path.go": "",
       "/com_github_antlr_antlr4/runtime/Go/antlr/": "",
       "/com_github_uber_jaeger_client_go": "",
       "/com_github_marten_seemann_qtls/": "",
-      "/org_golang_google_protobuf/encoding/prototext/": "",
-      "/org_golang_google_protobuf/internal/impl/": ""
+      "/org_golang_google_protobuf/": "",
+      "/com_github_magiconair_properties": "",
+      "/com_github_ghodss_yaml/":""
     }
   },
   "unsafeptr": {

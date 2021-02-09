@@ -77,12 +77,12 @@ The Address Header has the following format::
      0                   1                   2                   3
      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |            DstISD           |                                 |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                                 +
+    |            DstISD             |                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
     |                             DstAS                             |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |            SrcISD           |                                 |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                                 +
+    |            SrcISD             |                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
     |                             SrcAS                             |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     |                    DstHostAddr (variable Len)                 |
@@ -422,7 +422,7 @@ a forwarding path. Currently, it's only used for bootstrapping beaconing between
 neighboring ASes.
 
 A OneHopPath has exactly one info field and two hop fields with the speciality
-that the second hop field is not known apriori, but is instead created by the
+that the second hop field is not known a priori, but is instead created by the
 corresponding BR upon processing of the OneHopPath::
 
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -451,12 +451,12 @@ checksum computation should use the following pseudo header:
      0                   1                   2                   3
      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |            DstISD           |                                 |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                                 +
+    |            DstISD             |                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
     |                             DstAS                             |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |            SrcISD           |                                 |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                                 +
+    |            SrcISD             |                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
     |                             SrcAS                             |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     |                    DstHostAddr (variable Len)                 |

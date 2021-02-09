@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//lint:go.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
@@ -15,6 +15,7 @@ go_library(
         "//go/lib/infra/messenger:go_default_library",
         "//go/lib/log:go_default_library",
         "//go/lib/metrics:go_default_library",
+        "//go/lib/routemgr:go_default_library",
         "//go/lib/sciond:go_default_library",
         "//go/lib/serrors:go_default_library",
         "//go/lib/snet:go_default_library",
@@ -22,6 +23,7 @@ go_library(
         "//go/lib/sock/reliable:go_default_library",
         "//go/lib/sock/reliable/reconnect:go_default_library",
         "//go/lib/svc:go_default_library",
+        "//go/lib/util:go_default_library",
         "//go/pkg/gateway/config:go_default_library",
         "//go/pkg/gateway/control:go_default_library",
         "//go/pkg/gateway/control/grpc:go_default_library",
@@ -29,14 +31,12 @@ go_library(
         "//go/pkg/gateway/pathhealth:go_default_library",
         "//go/pkg/gateway/pathhealth/policies:go_default_library",
         "//go/pkg/gateway/routing:go_default_library",
-        "//go/pkg/gateway/routing/exporters/linux:go_default_library",
         "//go/pkg/grpc:go_default_library",
         "//go/pkg/proto/gateway:go_default_library",
         "//go/pkg/service:go_default_library",
         "@com_github_lucas_clemente_quic_go//:go_default_library",
         "@com_github_prometheus_client_golang//prometheus:go_default_library",
         "@com_github_prometheus_client_golang//prometheus/promauto:go_default_library",
-        "@com_github_vishvananda_netlink//:go_default_library",
         "@org_golang_google_grpc//:go_default_library",
     ],
 )

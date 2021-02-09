@@ -1,9 +1,34 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@rules_pkg//:pkg.bzl", "pkg_tar")
 load("@io_bazel_rules_go//go:def.bzl", "nogo")
+load("//lint:go_config.bzl", "go_lint_config")
+load("//lint/private/python:flake8_config.bzl", "flake8_lint_config")
 
 # gazelle:prefix github.com/scionproto/scion
+# gazelle:map_kind go_library go_library //lint:go.bzl
+# gazelle:map_kind go_test go_test //lint:go.bzl
 gazelle(name = "gazelle")
+
+go_lint_config(
+    name = "go_lint_config",
+    exclude_filter = [
+        "mock_",
+        ".pb.go",
+        ".capnp.go",
+        ".gen.go",
+    ],
+    visibility = [
+        "//visibility:public",
+    ],
+)
+
+flake8_lint_config(
+    name = "flake8_lint_config",
+    config_file = ".flake8",
+    visibility = [
+        "//visibility:public",
+    ],
+)
 
 # This is the SCION distributable package. It contains all (binary) services,
 # and the required tools.
@@ -34,6 +59,7 @@ pkg_tar(
         "//go/integration/end2end_integration",
         "//go/integration/scion_integration",
         "//go/lib/xtest/graphupdater",
+        "//go/pktgen",
         "//go/tools/buildkite_log_downloader",
         "//go/tools/udpproxy",
     ],
@@ -58,8 +84,6 @@ pkg_tar(
         "@buf_bin//file:buf",
         "@com_github_client9_misspell//cmd/misspell",
         "@com_github_jeanmertz_lll//cmd/lll",
-        "@com_github_oncilla_ineffassign//:ineffassign",
-        "@com_github_pavius_impi//cmd/impi",
     ],
     mode = "0755",
     package_dir = "",
@@ -88,20 +112,28 @@ nogo(
         "@org_golang_x_tools//go/analysis/passes/asmdecl:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/assign:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/atomic:go_tool_library",
+        "@org_golang_x_tools//go/analysis/passes/atomicalign:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/bools:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/buildtag:go_tool_library",
         # This crashes the build of @com_github_vishvananda_netlink
         # "@org_golang_x_tools//go/analysis/passes/cgocall:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/composite:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/copylock:go_tool_library",
+        "@org_golang_x_tools//go/analysis/passes/deepequalerrors:go_tool_library",
+        "@org_golang_x_tools//go/analysis/passes/errorsas:go_tool_library",
+        # We have uncountable violations of fieldalignment.
+        # "@org_golang_x_tools//go/analysis/passes/fieldalignment:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/httpresponse:go_tool_library",
+        "@org_golang_x_tools//go/analysis/passes/ifaceassert:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/loopclosure:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/lostcancel:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/nilfunc:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/nilness:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/printf:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/shift:go_tool_library",
+        "@org_golang_x_tools//go/analysis/passes/sortslice:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/stdmethods:go_tool_library",
+        "@org_golang_x_tools//go/analysis/passes/stringintconv:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/structtag:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/tests:go_tool_library",
         "@org_golang_x_tools//go/analysis/passes/unmarshal:go_tool_library",

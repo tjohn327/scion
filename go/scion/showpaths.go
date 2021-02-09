@@ -17,10 +17,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/scionproto/scion/go/lib/addr"
 	"github.com/scionproto/scion/go/lib/sciond"
@@ -32,21 +35,25 @@ import (
 
 func newShowpaths(pather CommandPather) *cobra.Command {
 	var flags struct {
-		timeout    time.Duration
-		cfg        showpaths.Config
-		expiration bool
-		json       bool
-		logLevel   string
-		noColor    bool
-		tracer     string
+		timeout  time.Duration
+		cfg      showpaths.Config
+		extended bool
+		json     bool
+		logLevel string
+		noColor  bool
+		tracer   string
 	}
+
+	v := viper.NewWithOptions(
+		viper.EnvKeyReplacer(strings.NewReplacer("SCIOND", "DAEMON", "LOCAL", "LOCAL_ADDR")),
+	)
 
 	var cmd = &cobra.Command{
 		Use:     "showpaths",
 		Short:   "Display paths to a SCION AS",
 		Aliases: []string{"sp"},
 		Args:    cobra.ExactArgs(1),
-		Example: fmt.Sprintf(`  %[1]s showpaths 1-ff00:0:110 --expiration
+		Example: fmt.Sprintf(`  %[1]s showpaths 1-ff00:0:110 --extended
   %[1]s showpaths 1-ff00:0:110 --local 127.0.0.55 --json
   %[1]s showpaths 1-ff00:0:111 --sequence="0-0#2 0*" # outgoing IfID=2
   %[1]s showpaths 1-ff00:0:111 --sequence="0* 0-0#41" # incoming IfID=41 at dstIA
@@ -65,13 +72,18 @@ If no alive path is discovered, json output is not enabled, and probing is not
 disabled, showpaths will exit with the code 1.
 On other errors, showpaths will exit with code 2.
 
-%s`, filterHelp),
+%s`, app.SequenceHelp),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			v.SetEnvPrefix("scion")
+			if err := v.BindPFlags(cmd.Flags()); err != nil {
+				return serrors.WrapStr("binding flags", err)
+			}
+			v.AutomaticEnv()
 			dst, err := addr.IAFromString(args[0])
 			if err != nil {
 				return serrors.WrapStr("invalid destination ISD-AS", err)
 			}
-			if err := setupLog(flags.logLevel); err != nil {
+			if err := app.SetupLog(flags.logLevel); err != nil {
 				return serrors.WrapStr("setting up logging", err)
 			}
 			closer, err := setupTracer("showpaths", flags.tracer)
@@ -79,6 +91,9 @@ On other errors, showpaths will exit with code 2.
 				return serrors.WrapStr("setting up tracing", err)
 			}
 			defer closer()
+
+			flags.cfg.SCIOND = v.GetString("sciond")
+			flags.cfg.Local = net.ParseIP(v.GetString("local"))
 
 			cmd.SilenceUsage = true
 
@@ -99,7 +114,7 @@ On other errors, showpaths will exit with code 2.
 			if len(res.Paths) == 0 {
 				return app.WithExitCode(serrors.New("no path found"), 1)
 			}
-			res.Human(os.Stdout, flags.expiration, !flags.noColor)
+			res.Human(os.Stdout, flags.extended, !flags.noColor)
 			if res.Alive() == 0 && !flags.cfg.NoProbe {
 				return app.WithExitCode(serrors.New("no path alive"), 1)
 			}
@@ -110,12 +125,11 @@ On other errors, showpaths will exit with code 2.
 	cmd.Flags().StringVar(&flags.cfg.SCIOND, "sciond",
 		sciond.DefaultAPIAddress, "SCION Deamon address")
 	cmd.Flags().DurationVar(&flags.timeout, "timeout", 5*time.Second, "Timeout")
-	cmd.Flags().StringVar(&flags.cfg.Sequence, "sequence",
-		"", "sequence space separated list of HPs")
+	cmd.Flags().StringVar(&flags.cfg.Sequence, "sequence", "", app.SequenceUsage)
 	cmd.Flags().IntVarP(&flags.cfg.MaxPaths, "maxpaths", "m", 10,
 		"Maximum number of paths that are displayed")
-	cmd.Flags().BoolVarP(&flags.expiration, "expiration", "e", false,
-		"Show path expiration information")
+	cmd.Flags().BoolVarP(&flags.extended, "extended", "e", false,
+		"Show extended path meta data information")
 	cmd.Flags().BoolVarP(&flags.cfg.Refresh, "refresh", "r", false,
 		"Set refresh flag for SCION Deamon path request")
 	cmd.Flags().BoolVar(&flags.cfg.NoProbe, "no-probe", false,
@@ -125,8 +139,7 @@ On other errors, showpaths will exit with code 2.
 	cmd.Flags().BoolVar(&flags.noColor, "no-color", false, "disable colored output")
 	cmd.Flags().IPVarP(&flags.cfg.Local, "local", "l", nil,
 		"Optional local IP address to use for probing health checks")
-	cmd.Flags().StringVar(&flags.logLevel, "log.level", "", "Console logging level verbosity "+
-		"(debug|info|error)")
+	cmd.Flags().StringVar(&flags.logLevel, "log.level", "", app.LogLevelUsage)
 	cmd.Flags().StringVar(&flags.tracer, "tracing.agent", "", "Tracing agent address")
 	return cmd
 }

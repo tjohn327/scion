@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -75,20 +75,15 @@ type Tunnel struct {
 
 	// Name is the name of TUN device to create.
 	Name string `toml:"name,omitempty"`
-	// RoutingTableID is the ID of the routing table used in the gateway.
-	RoutingTableID int `toml:"routing_table_id,omitempty"`
-	// SrcIPv4 is the source address int to put into the routing table.
+	// SrcIPv4 is the source address to put into the routing table.
 	SrcIPv4 net.IP `toml:"src_ipv4,omitempty"`
-	// SrcIPv6 is the source address int to put into the routing table.
+	// SrcIPv6 is the source address to put into the routing table.
 	SrcIPv6 net.IP `toml:"src_ipv6,omitempty"`
 }
 
 func (cfg *Tunnel) Validate() error {
 	if cfg.Name == "" {
 		cfg.Name = DefaultTunnelName
-	}
-	if cfg.RoutingTableID == 0 {
-		cfg.RoutingTableID = DefaultTunnelRoutingTableID
 	}
 	return nil
 }

@@ -66,9 +66,9 @@ cmd_run() {
         build_binaries || exit 1
         if is_docker_be; then
             echo "Build perapp images"
-            ./tools/quiet make -C docker prod
+            bazel run -c opt //docker:prod
             echo "Build scion tester"
-            ./tools/quiet make -C docker test
+            bazel run //docker:test
         fi
     fi
     run_setup
@@ -122,13 +122,10 @@ cmd_mstart() {
 
 run_setup() {
     python/integration/set_ipv6_addr.py -a
-     # Create dispatcher and sciond dirs or change owner
+     # Create dispatcher dir or change owner
     local disp_dir="/run/shm/dispatcher"
     [ -d "$disp_dir" ] || mkdir "$disp_dir"
     [ $(stat -c "%U" "$disp_dir") == "$LOGNAME" ] || { sudo -p "Fixing ownership of $disp_dir - [sudo] password for %p: " chown $LOGNAME: "$disp_dir"; }
-    local sciond_dir="/run/shm/sciond"
-    [ -d "$sciond_dir" ] || mkdir "$sciond_dir"
-    [ $(stat -c "%U" "$sciond_dir") == "$LOGNAME" ] || { sudo -p "Fixing ownership of $sciond_dir - [sudo] password for %p: " chown $LOGNAME: "$sciond_dir"; }
 
     run_jaeger
 }
@@ -144,11 +141,10 @@ cmd_stop() {
     if [ "$1" = "clean" ]; then
         python/integration/set_ipv6_addr.py -d
     fi
-    for i in /run/shm/{dispatcher,sciond}/; do
-        if [ -e "$i" ]; then
-            find "$i" -xdev -mindepth 1 -print0 | xargs -r0 rm -v
-        fi
-    done
+    local disp_dir="/run/shm/dispatcher"
+    if [ -e "$disp_dir" ]; then
+      find "$disp_dir" -xdev -mindepth 1 -print0 | xargs -r0 rm -v
+    fi
 }
 
 cmd_mstop() {
@@ -249,7 +245,7 @@ py_test() {
 }
 
 bazel_test() {
-    bazel test //go/... --test_output=errors --print_relative_test_log_paths
+    bazel test ... --test_tag_filters=unit --build_tests_only --print_relative_test_log_paths
 }
 
 cmd_coverage(){
@@ -276,21 +272,10 @@ go_cover() {
 cmd_lint() {
     set -o pipefail
     local ret=0
-    py_lint || ret=1
     go_lint || ret=1
     bazel_lint || ret=1
     protobuf_lint || ret=1
     md_lint || ret=1
-    return $ret
-}
-
-py_lint() {
-    lint_header "python"
-    local ret=0
-    dirs="acceptance python"
-    binaries="tools/github_releasenotes tools/package-version tools/gomocks"
-    lint_step "flake8"
-    flake8 $dirs $binaries | sort -t: -k1,1 -k2n,2 -k3n,3 || ((ret++))
     return $ret
 }
 
@@ -309,14 +294,6 @@ go_lint() {
     run_silently bazel build //:lint || return 1
     tar -xf bazel-bin/lint.tar -C $TMPDIR || return 1
     local ret=0
-    lint_step "impi"
-    $TMPDIR/impi --local github.com/scionproto/scion --scheme stdThirdPartyLocal \
-        --skip 'mock_' \
-        --skip 'go/proto/.*\.capnp\.go' \
-        --skip 'go/proto/structs.gen.go' \
-        --skip '.*\.pb\.go' \
-        ./go/... || ret=1
-    $TMPDIR/impi --local github.com/scionproto/scion --scheme stdThirdPartyLocal ./acceptance/... || ret=1
     lint_step "gofmt"
     # TODO(sustrik): At the moment there are no bazel rules for gofmt.
     # See: https://github.com/bazelbuild/rules_go/issues/511
@@ -329,10 +306,9 @@ go_lint() {
     if [ -n "$out" ]; then echo "$out"; ret=1; fi
     lint_step "misspell"
     xargs -a $TMPDIR/gofiles.list $TMPDIR/misspell -error || ret=1
-    lint_step "ineffassign"
-    $TMPDIR/ineffassign -exclude ineffassign.json go acceptance || ret=1
     lint_step "bazel"
     run_silently make gazelle GAZELLE_MODE=diff || ret=1
+    bazel test ... --test_tag_filters=lint --build_tests_only --print_relative_test_log_paths --test_summary terse --test_output errors --noshow_progress || ret=1
     # Clean up the binaries
     rm -rf $TMPDIR
     return $ret
@@ -462,7 +438,7 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-    coverage|help|lint|run|mstart|mstatus|mstop|stop|status|test|topology|version|build|clean|sciond|traces|stop_traces|topo_clean|bazel_remote)
+    coverage|help|lint|run|mstart|mstatus|mstop|stop|status|test|topology|version|build|clean|traces|stop_traces|topo_clean|bazel_remote)
         "cmd_$COMMAND" "$@" ;;
     start) cmd_run "$@" ;;
     *)  cmd_help; exit 1 ;;

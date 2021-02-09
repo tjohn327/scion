@@ -14,15 +14,17 @@
 
 import logging
 import os
+import re
+import typing
 
 from plumbum import cli
 from plumbum import local
 from plumbum import cmd
 from plumbum import path
 
+from acceptance.common.docker import Compose
 from acceptance.common.log import LogExec
 from acceptance.common.scion import SCION, SCIONSupervisor
-from acceptance.common.tools import DC
 
 NAME = 'NOT_SET'  # must be set by users of the Base class.
 DIR = 'NOT_SET'
@@ -42,7 +44,9 @@ class TestState:
     and the sub-command.
     """
 
-    def __init__(self, scion: SCION, dc: DC):
+    artifacts = None
+
+    def __init__(self, scion: SCION, dc: Compose):
         """
         Create new environment state for an execution of the acceptance
         testing framework. Plumbum subcommands can access this state
@@ -56,7 +60,7 @@ class TestState:
         if 'TEST_UNDECLARED_OUTPUTS_DIR' in os.environ:
             self.artifacts = local.path(os.environ['TEST_UNDECLARED_OUTPUTS_DIR'])
         else:
-            self.artifacts = local.path(cmd.mktemp('-d').strip())
+            self.artifacts = local.path("/tmp/artifacts-scion")
         self.dc.compose_file = self.artifacts / 'gen/scion-dc.yml'
         self.no_docker = False
         self.tools_dc = local['./tools/dc']
@@ -76,9 +80,14 @@ class TestBase(cli.Application):
         self.test_state.scion = SCIONSupervisor()
 
     @cli.switch('artifacts', str, envname='ACCEPTANCE_ARTIFACTS',
-                help='Artifacts directory')
+                help='Artifacts directory (for legacy tests)')
     def artifacts_dir(self, a_dir: str):
         self.test_state.artifacts = local.path('%s/%s/' % (a_dir, NAME))
+
+    @cli.switch('artifacts_dir', str, help='Artifacts directory (for bazel tests)')
+    def artifacts_dir_new(self, a_dir: str):
+        self.test_state.artifacts = local.path(a_dir)
+        self.test_state.dc.compose_file = self.test_state.artifacts / 'gen/scion-dc.yml'
 
     @cli.switch('topology_tar', str, help="The tarball with the topology files")
     def topology_tar(self, tar: str):
@@ -87,6 +96,53 @@ class TestBase(cli.Application):
     @cli.switch('containers_tar', str, help="The tarball with the containers")
     def containers_tar(self, tar: str):
         self.test_state.containers_tar = tar
+
+    @cli.switch('bazel_rule', str, help="The bazel rule that triggered the test")
+    def test_type(self, rule: str):
+        self.test_state.bazel_rule = rule
+
+    def _unpack_topo(self):
+        cmd.tar('-xf', self.test_state.topology_tar, '-C', self.test_state.artifacts)
+        cmd.sed('-i', 's#$SCIONROOT#%s#g' % self.test_state.artifacts,
+                self.test_state.artifacts / 'gen/scion-dc.yml')
+        self.test_state.dc.compose_file = self.test_state.artifacts / 'gen/scion-dc.yml'
+
+    def setup_prepare(self):
+        """Unpacks the topology and loads local docker images.
+        """
+        self._unpack_topo()
+        print(cmd.docker('image', 'load', '-i', self.test_state.containers_tar))
+
+    def setup(self):
+        # Delete old artifacts, if any.
+        cmd.rm("-rf", self.test_state.artifacts)
+        cmd.mkdir(self.test_state.artifacts)
+        print('artifacts dir: %s' % self.test_state.artifacts)
+        self.setup_prepare()
+        self.setup_start()
+
+    def setup_start(self):
+        """Starts the docker containers in the topology.
+        """
+        print(self.test_state.dc('up', '-d'))
+        print(self.test_state.dc('ps'))
+
+    def teardown(self):
+        out_dir = self.test_state.artifacts / 'logs'
+        self.test_state.dc.collect_logs(out_dir=out_dir)
+        ps = self.test_state.dc('ps')
+        print(self.test_state.dc('down', '-v'))
+        if re.search(r"Exit\s+[1-9]\d*", ps):
+            raise Exception("Failed services.\n" + ps)
+
+    def send_signal(self, container, signal):
+        """Sends signal to a container.
+
+            Args:
+                container: the name of the container.
+                signal: the signal to send
+        """
+        print(self.test_state.dc("kill", "-s", signal, container))
 
 
 class CmdBase(cli.Application):
@@ -156,3 +212,25 @@ class TestTeardown(CmdBase):
     @LogExec(logger, 'teardown')
     def main(self):
         self.cmd_teardown()
+
+
+def register_commands(c: typing.Type[TestBase]):
+    """
+    Registers the default subcommands to the test class c.
+    """
+
+    class TestSetup(c):
+        def main(self):
+            self.setup()
+
+    class TestRun(c):
+        def main(self):
+            self._run()
+
+    class TestTeardown(c):
+        def main(self):
+            self.teardown()
+
+    c.subcommand("setup", TestSetup)
+    c.subcommand("run", TestRun)
+    c.subcommand("teardown", TestTeardown)

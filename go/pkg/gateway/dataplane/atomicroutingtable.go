@@ -1,4 +1,16 @@
 // Copyright 2020 Anapaya Systems
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package dataplane
 
@@ -22,9 +34,10 @@ type AtomicRoutingTable struct {
 	// investigate if it's worth refactoring, because code with atomics will be harder
 	// to read.
 
-	// mtx protects read and write access to the routing table pointer. This does not include access
-	// to the table itself; as soon as the pointer to the table is read, the table operations
-	// will happen outside the mutex-protected area.
+	// mtx protects read and write access to the routing table pointer. This does
+	// not include access to the table itself; as soon as the pointer to the
+	// table is read, the table operations will happen outside the
+	// mutex-protected area.
 	mtx   sync.RWMutex
 	table control.RoutingTable
 }
@@ -45,34 +58,22 @@ func (t *AtomicRoutingTable) RouteIPv6(packet layers.IPv6) control.PktWriter {
 	return table.RouteIPv6(packet)
 }
 
-func (t *AtomicRoutingTable) AddRoute(index int, pktWriter control.PktWriter) error {
-	table := t.getPointer()
-	if table == nil {
-		return nil
-	}
-	return table.AddRoute(index, pktWriter)
-}
-
-func (t *AtomicRoutingTable) DelRoute(index int) error {
-	table := t.getPointer()
-	if table == nil {
-		return nil
-	}
-	return table.DelRoute(index)
-}
-
 func (t *AtomicRoutingTable) SetRoutingTable(table control.RoutingTable) {
-	t.setPointer(table)
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+
+	if t.table != nil {
+		t.table.Deactivate()
+	}
+
+	t.table = table
+	if t.table != nil {
+		t.table.Activate()
+	}
 }
 
 func (t *AtomicRoutingTable) getPointer() control.RoutingTable {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	return t.table
-}
-
-func (t *AtomicRoutingTable) setPointer(table control.RoutingTable) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
-	t.table = table
 }

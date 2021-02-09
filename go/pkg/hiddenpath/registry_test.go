@@ -16,7 +16,6 @@ package hiddenpath_test
 
 import (
 	"context"
-	"net"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -58,21 +57,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-1"),
 				Segments: []*seg.Meta{{Type: seg.TypeCore}},
-				Peer:     &snet.UDPAddr{IA: writer},
-			},
-			db: func(ctrl *gomock.Controller) hiddenpath.Store {
-				return mock_hiddenpath.NewMockStore(ctrl)
-			},
-			verifier: func(ctrl *gomock.Controller) hiddenpath.Verifier {
-				return mock_hiddenpath.NewMockVerifier(ctrl)
-			},
-			assertErr: assert.Error,
-		},
-		"invalid peer": {
-			reg: hiddenpath.Registration{
-				GroupID:  mustParseGroupID(t, "ff00:0:4-5"),
-				Segments: []*seg.Meta{{Type: seg.TypeCore}},
-				Peer:     &net.IPAddr{IP: net.ParseIP("10.1.40.4")},
+				Peer:     &snet.SVCAddr{IA: writer},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				return mock_hiddenpath.NewMockStore(ctrl)
@@ -86,7 +71,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-405"),
 				Segments: []*seg.Meta{{Type: seg.TypeCore}},
-				Peer:     &snet.UDPAddr{IA: writer},
+				Peer:     &snet.SVCAddr{IA: writer},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				return mock_hiddenpath.NewMockStore(ctrl)
@@ -100,7 +85,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-404"),
 				Segments: []*seg.Meta{{Type: seg.TypeCore}},
-				Peer:     &snet.UDPAddr{IA: writer},
+				Peer:     &snet.SVCAddr{IA: writer},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				return mock_hiddenpath.NewMockStore(ctrl)
@@ -114,7 +99,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-5"),
 				Segments: []*seg.Meta{{Type: seg.TypeCore}},
-				Peer:     &snet.UDPAddr{IA: writer},
+				Peer:     &snet.SVCAddr{IA: writer},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				return mock_hiddenpath.NewMockStore(ctrl)
@@ -128,7 +113,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-5"),
 				Segments: []*seg.Meta{{Type: seg.TypeDown}},
-				Peer:     &snet.UDPAddr{IA: writer},
+				Peer:     &snet.SVCAddr{IA: writer, SVC: addr.SvcCS},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				return mock_hiddenpath.NewMockStore(ctrl)
@@ -137,7 +122,7 @@ func TestRegistryRegister(t *testing.T) {
 				verifier := mock_hiddenpath.NewMockVerifier(ctrl)
 				verifier.EXPECT().Verify(gomock.Any(),
 					[]*seg.Meta{{Type: seg.TypeDown}},
-					&snet.UDPAddr{IA: writer},
+					&snet.SVCAddr{IA: writer, SVC: addr.SvcCS},
 				).Return(serrors.New("test err"))
 				return verifier
 			},
@@ -147,7 +132,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-5"),
 				Segments: []*seg.Meta{{Type: seg.TypeDown}},
-				Peer:     &snet.UDPAddr{IA: writer},
+				Peer:     &snet.SVCAddr{IA: writer, SVC: addr.SvcCS},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				db := mock_hiddenpath.NewMockStore(ctrl)
@@ -159,7 +144,7 @@ func TestRegistryRegister(t *testing.T) {
 				verifier := mock_hiddenpath.NewMockVerifier(ctrl)
 				verifier.EXPECT().Verify(gomock.Any(),
 					[]*seg.Meta{{Type: seg.TypeDown}},
-					&snet.UDPAddr{IA: writer},
+					&snet.SVCAddr{IA: writer, SVC: addr.SvcCS},
 				)
 				return verifier
 			},
@@ -169,7 +154,7 @@ func TestRegistryRegister(t *testing.T) {
 			reg: hiddenpath.Registration{
 				GroupID:  mustParseGroupID(t, "ff00:0:4-5"),
 				Segments: []*seg.Meta{{Type: seg.TypeDown}},
-				Peer:     &snet.UDPAddr{IA: writer},
+				Peer:     &snet.SVCAddr{IA: writer, SVC: addr.SvcCS},
 			},
 			db: func(ctrl *gomock.Controller) hiddenpath.Store {
 				db := mock_hiddenpath.NewMockStore(ctrl)
@@ -181,7 +166,7 @@ func TestRegistryRegister(t *testing.T) {
 				verifier := mock_hiddenpath.NewMockVerifier(ctrl)
 				verifier.EXPECT().Verify(gomock.Any(),
 					[]*seg.Meta{{Type: seg.TypeDown}},
-					&snet.UDPAddr{IA: writer},
+					&snet.SVCAddr{IA: writer, SVC: addr.SvcCS},
 				)
 				return verifier
 			},

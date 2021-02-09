@@ -9,7 +9,7 @@
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specdic language governing permissions and
+// See the License for the specific language governing permissions and
 // limitations under the License.
 
 package main
@@ -90,6 +90,9 @@ func realMain() int {
 		cases.SCMPBadMAC(artifactsDir, hfMAC),
 		cases.SCMPBadMACInternal(artifactsDir, hfMAC),
 		cases.SCMPExpiredHopAfterXover(artifactsDir, hfMAC),
+		cases.SCMPExpiredHopAfterXoverConsDir(artifactsDir, hfMAC),
+		cases.SCMPExpiredHopAfterXoverInternal(artifactsDir, hfMAC),
+		cases.SCMPExpiredHopAfterXoverInternalConsDir(artifactsDir, hfMAC),
 		cases.SCMPExpiredHop(artifactsDir, hfMAC),
 		cases.SCMPChildToParentXover(artifactsDir, hfMAC),
 		cases.SCMPParentToChildXover(artifactsDir, hfMAC),
@@ -101,7 +104,9 @@ func realMain() int {
 		cases.SCMPUnknownHop(artifactsDir, hfMAC),
 		cases.SCMPUnknownHopEgress(artifactsDir, hfMAC),
 		cases.SCMPTracerouteIngress(artifactsDir, hfMAC),
+		cases.SCMPTracerouteIngressConsDir(artifactsDir, hfMAC),
 		cases.SCMPTracerouteEgress(artifactsDir, hfMAC),
+		cases.SCMPTracerouteEgressConsDir(artifactsDir, hfMAC),
 		cases.SCMPTracerouteEgressAfterXover(artifactsDir, hfMAC),
 		cases.SCMPTracerouteInternal(artifactsDir, hfMAC),
 		cases.SCMPBadPktLen(artifactsDir, hfMAC),

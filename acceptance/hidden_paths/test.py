@@ -2,13 +2,14 @@
 
 # Copyright 2020 Anapaya Systems
 
+import http.server
 import time
+import threading
 
 from plumbum import cmd
 
 from acceptance.common import base
-from acceptance.common import log
-from acceptance.common import tools
+from acceptance.common import docker
 from acceptance.common import scion
 
 
@@ -47,35 +48,82 @@ class Test(base.TestBase):
     """
 
     def main(self):
-        print("artifacts dir: %s" % self.test_state.artifacts)
-        self._unpack_topo()
         if not self.nested_command:
             try:
-                self._setup()
+                self.setup()
                 time.sleep(20)
                 self._run()
             finally:
-                self._teardown()
+                self.teardown()
 
-    def _unpack_topo(self):
-        cmd.tar("-xf", "./acceptance/hidden_paths/gen.tar",
-                "-C", self.test_state.artifacts)
-        cmd.sed("-i", "s#$SCIONROOT#%s#g" % self.test_state.artifacts,
-                self.test_state.artifacts / "gen/scion-dc.yml")
+    def setup(self):
+        self.setup_prepare()
 
-    def _docker_compose(self, *args) -> str:
-        return cmd.docker_compose("-f", self.test_state.artifacts / "gen" / "scion-dc.yml",
-                                  "-p", "scion", *args)
+        http_server_port = 9099
 
-    def _setup(self):
-        print(cmd.docker("image", "load", "-i",
-              "./acceptance/hidden_paths/testcontainers.tar"))
+        as_numbers = ["2", "3", "4", "5"]
+        # HTTP configuration server runs on 0.0.0.0 and needs to be reachable from
+        # every daemon and control service. There is one host IP on every AS bridge.
+        # We use this IP for the configuration download URLs.
+        server_ips = {
+            "2": "172.20.0.49",
+            "3": "172.20.0.57",
+            "4": "172.20.0.65",
+            "5": "172.20.0.73",
+        }
+        # XXX(lukedirtwalker): The ports below are the dynamic QUIC server
+        # ports. Thanks to the docker setup they are setup consistently so we
+        # can use them. Optimally we would define a static server port inside
+        # the CS and use that one instead.
+        control_addresses = {
+            "2": "172.20.0.51:32768",
+            "3": "172.20.0.59:32768",
+            "4": "172.20.0.67:32768",
+            "5": "172.20.0.75:32768",
+        }
+        # Each AS participating in hidden paths has their own hidden paths configuration file.
+        hp_configs = {
+            "2": "hp_groups_as2_as5.yml",
+            "3": "hp_groups_as3.yml",
+            "4": "hp_groups_as4.yml",
+            "5": "hp_groups_as2_as5.yml",
+        }
 
-        # TODO(scrye): Mangle configuration files of Daemons and Control Services to enable
-        # hidden paths.
+        # Edit all the configuration files of daemons and control services with
+        # the computed configuration URL
+        for as_number in as_numbers:
+            hp_config_url = "http://%s:%d/acceptance/hidden_paths/testdata/%s" % (
+                server_ips[as_number], http_server_port, hp_configs[as_number])
 
-        print(self._docker_compose("up", "-d"))
-        time.sleep(5)
+            daemon_path = self.test_state.artifacts / "gen" / ("ASff00_0_%s" % as_number) \
+                / "sd.toml"
+            scion.update_toml({"sd.hidden_path_groups": hp_config_url}, [daemon_path])
+
+            control_id = "cs1-ff00_0_%s-1" % as_number
+            control_path = self.test_state.artifacts / "gen" / ("ASff00_0_%s" % as_number) \
+                / ("%s.toml" % control_id)
+            scion.update_toml({"path.hidden_paths_cfg": hp_config_url}, [control_path])
+
+            # For simplicity, expose the services in all hidden paths ASes,
+            # even though some don't need the registration service.
+            as_dir_path = self.test_state.artifacts / "gen" / ("ASff00_0_%s" % as_number)
+
+            topology_update = {
+                "hidden_segment_lookup_service.%s.addr" % control_id:
+                    control_addresses[as_number],
+                "hidden_segment_registration_service.%s.addr" % control_id:
+                    control_addresses[as_number],
+            }
+            topology_file = as_dir_path / "topology.json"
+            scion.update_json(topology_update, [topology_file])
+
+        server = http.server.HTTPServer(
+                ("0.0.0.0", http_server_port), http.server.SimpleHTTPRequestHandler)
+        server_thread = threading.Thread(target=configuration_server, args=[server])
+        server_thread.start()
+
+        self.setup_start()
+        time.sleep(4)  # Give applications time to download configurations
 
         self._testers = {
             "2": "tester_1-ff00_0_2",
@@ -89,12 +137,7 @@ class Test(base.TestBase):
             "4": "1-ff00:0:4",
             "5": "1-ff00:0:5",
         }
-        self._daemons_api = {
-            "2": "172.20.0.52:30255",
-            "3": "172.20.0.60:30255",
-            "4": "172.20.0.68:30255",
-            "5": "172.20.0.76:30255",
-        }
+        server.shutdown()
 
     def _run(self):
         # Group 3
@@ -108,44 +151,26 @@ class Test(base.TestBase):
         self._showpaths_bidirectional("4", "5", 0)
 
         # Group 3 X 4
-        # FIXME(scrye): When hidden paths is implemented, the below should fail.
-        # Change to 1.
-        self._showpaths_bidirectional("3", "4", 0)
+        self._showpaths_bidirectional("3", "4", 1)
 
     def _showpaths_bidirectional(self, source: str, destination: str, retcode: int):
         self._showpaths_run(source, destination, retcode)
         self._showpaths_run(destination, source, retcode)
 
     def _showpaths_run(self, source_as: str, destination_as: str, retcode: int):
-        print(cmd.docker("exec", "-t", self._testers[source_as], "./bin/scion",
+        print(cmd.docker("exec", "-t", self._testers[source_as], "scion",
                          "sp", self._ases[destination_as],
-                         "--sciond", self._daemons_api[source_as],
                          "--timeout", "2s",
-                         "--no-probe",  # FIXME(scrye): Testers always time out, but paths exist.
                          retcode=retcode))
 
-    def _teardown(self):
-        logs = self._docker_compose("logs")
-        with open(self.test_state.artifacts / "logs" / "docker-compose.log", "w") as f:
-            f.write(logs)
-        print(self._docker_compose("down", "-v"))
 
-
-@Test.subcommand("setup")
-class TestSetup(Test):
-
-    def main(self):
-        self._setup()
-
-
-@Test.subcommand("teardown")
-class TestTeardown(Test):
-
-    def main(self):
-        self._teardown()
+def configuration_server(server):
+    print("HTTP configuration server starting on %s:%d." % server.server_address)
+    server.serve_forever()
+    print("HTTP configuration server closed.")
 
 
 if __name__ == "__main__":
-    log.init_log()
-    Test.test_state = base.TestState(scion.SCIONDocker(), tools.DC())
+    base.register_commands(Test)
+    Test.test_state = base.TestState(scion.SCIONDocker(), docker.Compose())
     Test.run()

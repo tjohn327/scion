@@ -37,6 +37,7 @@ type sender struct {
 	conn               net.PacketConn
 	address            net.Addr
 	pathStatsPublisher PathStatsPublisher
+	path               snet.Path
 	pathFingerprint    snet.PathFingerprint
 	metrics            SessionMetrics
 }
@@ -65,6 +66,7 @@ func newSender(sessID uint8, conn net.PacketConn, path snet.Path,
 			Host:    &gatewayAddr,
 		},
 		pathStatsPublisher: pathStatsPublisher,
+		path:               path,
 		pathFingerprint:    snet.Fingerprint(path),
 		metrics:            metrics,
 	}
@@ -105,7 +107,7 @@ func (c *sender) run() {
 		increaseCounterMetric(c.metrics.FrameBytesSent, float64(len(frame)))
 
 		if c.pathStatsPublisher != nil {
-			c.pathStatsPublisher.PublishEgressStats(string(c.pathFingerprint),
+			c.pathStatsPublisher.PublishEgressStats(c.pathFingerprint.String(),
 				1, int64(len(frame)))
 		}
 	}
