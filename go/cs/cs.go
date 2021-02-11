@@ -485,6 +485,7 @@ func realMain() error {
 			AllowedOrigins: []string{"*"},
 		}))
 		server := api.Server{
+			Segments: pathDB,
 			CA:       chainBuilder,
 			Config:   service.NewConfigHandler(globalCfg),
 			Info:     service.NewInfoHandler(),
