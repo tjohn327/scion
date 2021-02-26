@@ -496,6 +496,7 @@ func realMain() error {
 			LogLevel: log.ConsoleLevel.ServeHTTP,
 			Signer:   signer,
 			Topology: itopo.TopologyHandler,
+			TrustDB:  trustDB,
 		}
 		log.Info("Exposing API", "addr", globalCfg.API.Addr)
 		h := api.HandlerFromMux(&server, r)
