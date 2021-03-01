@@ -282,6 +282,7 @@ func (g *Gateway) Run() error {
 			RevocationHandler:  revocationHandler,
 			Router:             pathRouter,
 			PathUpdateInterval: PathUpdateInterval(),
+			ProbeInterval:      ProbeInterval(),
 			RemoteWatcherFactory: &pathhealth.DefaultRemoteWatcherFactory{
 				PathWatcherFactory: &pathhealth.DefaultPathWatcherFactory{
 					Logger: g.Logger,
@@ -687,6 +688,20 @@ func PathUpdateInterval() time.Duration {
 	dur, err := util.ParseDuration(s)
 	if err != nil {
 		log.Info("Failed to parse SCION_EXPERIMENTAL_GATEWAY_PATH_UPDATE_INTERVAL, using default",
+			"err", err)
+		return 0
+	}
+	return dur
+}
+
+func ProbeInterval() time.Duration {
+	s, ok := os.LookupEnv("SCION_EXPERIMENTAL_GATEWAY_PROBE_INTERVAL")
+	if !ok {
+		return 0
+	}
+	dur, err := util.ParseDuration(s)
+	if err != nil {
+		log.Info("Failed to parse SCION_EXPERIMENTAL_GATEWAY_PROBE_INTERVAL, using default",
 			"err", err)
 		return 0
 	}
