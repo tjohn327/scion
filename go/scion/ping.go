@@ -227,4 +227,6 @@ func pingSummary(stats ping.Stats, remote *snet.UDPAddr, run time.Duration) {
 	fmt.Printf("\n--- %s,%s statistics ---\n", remote.IA, remote.Host.IP)
 	fmt.Printf("%d packets transmitted, %d received, %d%% packet loss, time %v\n",
 		stats.Sent, stats.Received, pktLoss, run.Round(time.Microsecond))
+	fmt.Printf("rtt min/avg/max = %.3f/%.3f/%.3f ms\n", stats.RTTMin,
+		stats.RTTTotal/float64(stats.Received), stats.RTTMax)
 }

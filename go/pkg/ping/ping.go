@@ -35,6 +35,9 @@ import (
 type Stats struct {
 	Sent     int
 	Received int
+	RTTMax   float64
+	RTTMin   float64
+	RTTTotal float64
 }
 
 // Update contains intermediary information about a received echo reply
@@ -244,6 +247,16 @@ func (p *pinger) receive(reply reply) {
 		p.receivedSequence = int(reply.Reply.SeqNumber)
 	}
 	p.stats.Received++
+	rttMs := float64(rtt) / float64(time.Millisecond)
+	p.stats.RTTTotal += rttMs
+	if p.stats.RTTMax < rttMs {
+		p.stats.RTTMax = rttMs
+	}
+	if p.stats.RTTMin == 0 {
+		p.stats.RTTMin = rttMs
+	} else if rttMs < p.stats.RTTMin {
+		p.stats.RTTMin = rttMs
+	}
 	if p.updateHandler != nil {
 		p.updateHandler(Update{
 			RTT:      rtt,
