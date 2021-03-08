@@ -307,7 +307,9 @@ func realMain() error {
 			globalCfg.General.ConfigDir,
 		)
 		renewalServer := &cstrustgrpc.RenewalServer{
-			Verifier:     cstrustgrpc.RenewalRequestVerifierFunc(renewal.VerifyChainRenewalRequest),
+			Verifier: renewal.RequestVerifier{
+				TRCFetcher: trustDB,
+			},
 			ChainBuilder: chainBuilder,
 			DB:           renewalDB,
 			IA:           topo.IA(),
