@@ -61,13 +61,13 @@ import (
 	"github.com/scionproto/scion/go/lib/sock/reliable"
 	"github.com/scionproto/scion/go/lib/topology"
 	"github.com/scionproto/scion/go/pkg/app/launcher"
+	"github.com/scionproto/scion/go/pkg/ca/renewal"
+	renewalgrpc "github.com/scionproto/scion/go/pkg/ca/renewal/grpc"
 	"github.com/scionproto/scion/go/pkg/command"
 	"github.com/scionproto/scion/go/pkg/cs"
 	"github.com/scionproto/scion/go/pkg/cs/api"
 	"github.com/scionproto/scion/go/pkg/cs/drkey"
 	drkeygrpc "github.com/scionproto/scion/go/pkg/cs/drkey/grpc"
-	cstrust "github.com/scionproto/scion/go/pkg/cs/trust"
-	cstrustgrpc "github.com/scionproto/scion/go/pkg/cs/trust/grpc"
 	cstrustmetrics "github.com/scionproto/scion/go/pkg/cs/trust/metrics"
 	"github.com/scionproto/scion/go/pkg/discovery"
 	libgrpc "github.com/scionproto/scion/go/pkg/grpc"
@@ -80,7 +80,6 @@ import (
 	"github.com/scionproto/scion/go/pkg/trust/compat"
 	trustgrpc "github.com/scionproto/scion/go/pkg/trust/grpc"
 	trustmetrics "github.com/scionproto/scion/go/pkg/trust/metrics"
-	"github.com/scionproto/scion/go/pkg/trust/renewal"
 )
 
 var globalCfg config.Config
@@ -214,7 +213,7 @@ func realMain() error {
 	tcpServer := grpc.NewServer(libgrpc.UnaryServerInterceptor())
 
 	// Register trust material related handlers.
-	trustServer := &cstrustgrpc.MaterialServer{
+	trustServer := &renewalgrpc.MaterialServer{
 		Provider: provider,
 		IA:       topo.IA(),
 		Requests: libmetrics.NewPromCounter(cstrustmetrics.Handler.Requests),
@@ -290,7 +289,7 @@ func realMain() error {
 		return serrors.WrapStr("initializing AS signer", err)
 	}
 
-	var chainBuilder cstrust.ChainBuilder
+	var chainBuilder renewal.ChainBuilder
 	if topo.CA() {
 		renewalDB, err := storage.NewRenewalStorage(globalCfg.RenewalDB)
 		if err != nil {
@@ -306,7 +305,7 @@ func realMain() error {
 			globalCfg.CA.MaxASValidity.Duration,
 			globalCfg.General.ConfigDir,
 		)
-		renewalServer := &cstrustgrpc.RenewalServer{
+		renewalServer := &renewalgrpc.RenewalServer{
 			Verifier: renewal.RequestVerifier{
 				TRCFetcher: trustDB,
 			},
