@@ -34,6 +34,8 @@ type Route struct {
 	Prefix *net.IPNet
 	// NextHop is the next hop to send the packets to.
 	NextHop net.IP
+	// Source is the (optional) source hint for the IP route.
+	Source net.IP
 }
 
 // RouteUpdate is used to inform consumers about changes in the route database.
@@ -186,6 +188,7 @@ func (db *RouteDB) NewConsumer() Consumer {
 			Route: Route{
 				Prefix:  entry.Prefix,
 				NextHop: entry.NextHop,
+				Source:  entry.Source,
 			},
 		})
 	}
@@ -255,6 +258,7 @@ func (db *RouteDB) cleanUp() {
 					Route: Route{
 						Prefix:  entry.Prefix,
 						NextHop: entry.NextHop,
+						Source:  entry.Source,
 					},
 				})
 			}

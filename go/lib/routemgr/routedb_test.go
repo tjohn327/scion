@@ -41,7 +41,8 @@ func TestSimple(t *testing.T) {
 	cons := db.NewConsumer()
 	_, prefix, _ := net.ParseCIDR("192.168.0.0/24")
 	nh := net.ParseIP("10.11.12.13")
-	route := Route{Prefix: prefix, NextHop: nh}
+	src := net.ParseIP("10.14.15.16")
+	route := Route{Prefix: prefix, NextHop: nh, Source: src}
 
 	pub.AddRoute(route)
 	upd := <-cons.Updates()
@@ -53,6 +54,7 @@ func TestSimple(t *testing.T) {
 	assert.Equal(t, false, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub.Close()
 	cons.Close()
@@ -68,38 +70,45 @@ func TestMultiple(t *testing.T) {
 	_, prefix1, _ := net.ParseCIDR("192.168.0.0/24")
 	_, prefix2, _ := net.ParseCIDR("192.168.1.0/24")
 	nh := net.ParseIP("10.11.12.13")
-	route1 := Route{Prefix: prefix1, NextHop: nh}
-	route2 := Route{Prefix: prefix2, NextHop: nh}
+	src := net.ParseIP("10.14.15.16")
+	route1 := Route{Prefix: prefix1, NextHop: nh, Source: src}
+	route2 := Route{Prefix: prefix2, NextHop: nh, Source: src}
 
 	pub1.AddRoute(route1)
 	upd := <-cons1.Updates()
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix1, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 	upd = <-cons2.Updates()
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix1, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub2.AddRoute(route2)
 	upd = <-cons1.Updates()
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix2, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 	upd = <-cons2.Updates()
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix2, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub1.DeleteRoute(route1)
 	upd = <-cons1.Updates()
 	assert.Equal(t, false, upd.IsAdd)
 	assert.Equal(t, prefix1, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 	upd = <-cons2.Updates()
 	assert.Equal(t, false, upd.IsAdd)
 	assert.Equal(t, prefix1, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub1.Close()
 	pub2.Close()
@@ -114,7 +123,8 @@ func TestPublisherRefcount(t *testing.T) {
 	cons := db.NewConsumer()
 	_, prefix, _ := net.ParseCIDR("192.168.0.0/24")
 	nh := net.ParseIP("10.11.12.13")
-	route := Route{Prefix: prefix, NextHop: nh}
+	src := net.ParseIP("10.14.15.16")
+	route := Route{Prefix: prefix, NextHop: nh, Source: src}
 
 	pub.AddRoute(route)
 	pub.AddRoute(route)
@@ -125,11 +135,13 @@ func TestPublisherRefcount(t *testing.T) {
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	upd = <-cons.Updates()
 	assert.Equal(t, false, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub.Close()
 	cons.Close()
@@ -143,7 +155,8 @@ func TestDBRefcount(t *testing.T) {
 	cons := db.NewConsumer()
 	_, prefix, _ := net.ParseCIDR("192.168.0.0/24")
 	nh := net.ParseIP("10.11.12.13")
-	route := Route{Prefix: prefix, NextHop: nh}
+	src := net.ParseIP("10.14.15.16")
+	route := Route{Prefix: prefix, NextHop: nh, Source: src}
 
 	pub1.AddRoute(route)
 	pub2.AddRoute(route)
@@ -154,11 +167,13 @@ func TestDBRefcount(t *testing.T) {
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	upd = <-cons.Updates()
 	assert.Equal(t, false, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub1.Close()
 	pub2.Close()
@@ -172,19 +187,22 @@ func TestPublisherClose(t *testing.T) {
 	cons := db.NewConsumer()
 	_, prefix, _ := net.ParseCIDR("192.168.0.0/24")
 	nh := net.ParseIP("10.11.12.13")
-	route := Route{Prefix: prefix, NextHop: nh}
+	src := net.ParseIP("10.14.15.16")
+	route := Route{Prefix: prefix, NextHop: nh, Source: src}
 
 	pub.AddRoute(route)
 	upd := <-cons.Updates()
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub.Close()
 	upd = <-cons.Updates()
 	assert.Equal(t, false, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	cons.Close()
 	db.Close()
@@ -206,7 +224,8 @@ func TestDelayed(t *testing.T) {
 	pub := db.NewPublisher()
 	_, prefix, _ := net.ParseCIDR("192.168.0.0/24")
 	nh := net.ParseIP("10.11.12.13")
-	route := Route{Prefix: prefix, NextHop: nh}
+	src := net.ParseIP("10.14.15.16")
+	route := Route{Prefix: prefix, NextHop: nh, Source: src}
 
 	pub.AddRoute(route)
 
@@ -215,6 +234,7 @@ func TestDelayed(t *testing.T) {
 	assert.Equal(t, true, upd.IsAdd)
 	assert.Equal(t, prefix, upd.Prefix)
 	assert.Equal(t, nh, upd.NextHop)
+	assert.Equal(t, src, upd.Source)
 
 	pub.Close()
 	cons.Close()
