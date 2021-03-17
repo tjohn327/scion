@@ -68,6 +68,7 @@ import (
 	"github.com/scionproto/scion/go/pkg/cs/api"
 	"github.com/scionproto/scion/go/pkg/cs/drkey"
 	drkeygrpc "github.com/scionproto/scion/go/pkg/cs/drkey/grpc"
+	cstrustgrpc "github.com/scionproto/scion/go/pkg/cs/trust/grpc"
 	cstrustmetrics "github.com/scionproto/scion/go/pkg/cs/trust/metrics"
 	"github.com/scionproto/scion/go/pkg/discovery"
 	libgrpc "github.com/scionproto/scion/go/pkg/grpc"
@@ -213,7 +214,7 @@ func realMain() error {
 	tcpServer := grpc.NewServer(libgrpc.UnaryServerInterceptor())
 
 	// Register trust material related handlers.
-	trustServer := &renewalgrpc.MaterialServer{
+	trustServer := &cstrustgrpc.MaterialServer{
 		Provider: provider,
 		IA:       topo.IA(),
 		Requests: libmetrics.NewPromCounter(cstrustmetrics.Handler.Requests),
