@@ -55,6 +55,9 @@ type SessionConfig struct {
 	PathPolicy policies.PathPolicy
 	// PathCount is the max number of paths to use.
 	PathCount int
+	// MultiPathRedundancy defines wether redundant communication on two paths
+	// is turned on
+	MultiPathRedundancy bool
 	// Gateway describes a discovered remote gateway instance.
 	Gateway Gateway
 	// Prefixes contains the network prefixes that are reachable through this
@@ -319,15 +322,16 @@ func buildSessionConfigs(sessionPolicies SessionPolicies,
 				return nil, err
 			}
 			result = append(result, &SessionConfig{
-				ID:             sessID,
-				PolicyID:       sessionPolicy.ID,
-				IA:             sessionPolicy.IA,
-				TrafficMatcher: sessionPolicy.TrafficMatcher,
-				PerfPolicy:     sessionPolicy.PerfPolicy,
-				PathPolicy:     pathPol,
-				PathCount:      sessionPolicy.PathCount,
-				Gateway:        entry.Gateway,
-				Prefixes:       mergePrefixes(sessionPolicy.Prefixes, entry.Prefixes),
+				ID:                  sessID,
+				PolicyID:            sessionPolicy.ID,
+				IA:                  sessionPolicy.IA,
+				TrafficMatcher:      sessionPolicy.TrafficMatcher,
+				PerfPolicy:          sessionPolicy.PerfPolicy,
+				PathPolicy:          pathPol,
+				PathCount:           sessionPolicy.PathCount,
+				MultiPathRedundancy: sessionPolicy.MultipathRedundancy,
+				Gateway:             entry.Gateway,
+				Prefixes:            mergePrefixes(sessionPolicy.Prefixes, entry.Prefixes),
 			})
 			sessID++
 		}

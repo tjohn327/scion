@@ -54,11 +54,12 @@ type SessionMetrics struct {
 }
 
 type Session struct {
-	SessionID          uint8
-	GatewayAddr        net.UDPAddr
-	DataPlaneConn      net.PacketConn
-	PathStatsPublisher PathStatsPublisher
-	Metrics            SessionMetrics
+	SessionID           uint8
+	GatewayAddr         net.UDPAddr
+	DataPlaneConn       net.PacketConn
+	PathStatsPublisher  PathStatsPublisher
+	Metrics             SessionMetrics
+	MultipathRedundancy bool
 
 	mutex sync.Mutex
 	// senders is a list of currently used senders.
@@ -86,6 +87,12 @@ func (s *Session) Write(packet gopacket.Packet) {
 		s.senders[0].Write(packet.Data())
 		return
 	}
+	if s.MultipathRedundancy {
+		for _, sender := range s.senders {
+			sender.Write(packet.Data())
+		}
+		return
+	}
 	// Choose the path based on the packet's quintuple.
 	hash := crc64.Checksum(extractQuintuple(packet), crcTable)
 	index := hash % uint64(len(s.senders))
@@ -111,7 +118,7 @@ func (s *Session) String() string {
 //
 // 2. Paths can have different latencies, meaning that switching to new path
 // could cause packets to be delivered out of order. Using new sender with new stream
-// ID causes creation of new reassemby queue on the remote side, thus avoiding the
+// ID causes creation of new reassembly queue on the remote side, thus avoiding the
 // reordering issues.
 func (s *Session) SetPaths(paths []snet.Path) error {
 	s.mutex.Lock()

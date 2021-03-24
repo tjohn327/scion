@@ -45,8 +45,9 @@ type LegacySessionPolicyAdapter struct{}
 func (LegacySessionPolicyAdapter) Parse(raw []byte) (SessionPolicies, error) {
 	type JSONFormat struct {
 		ASes map[addr.IA]struct {
-			Nets      []string
-			PathCount int
+			Nets                []string
+			PathCount           int
+			MultiPathRedundancy bool
 		}
 		ConfigVersion uint64
 	}
@@ -64,14 +65,19 @@ func (LegacySessionPolicyAdapter) Parse(raw []byte) (SessionPolicies, error) {
 		if asEntry.PathCount != 0 {
 			pathCount = asEntry.PathCount
 		}
+		multipathRedundancy := false
+		if asEntry.MultiPathRedundancy {
+			multipathRedundancy = asEntry.MultiPathRedundancy
+		}
 		policies = append(policies, SessionPolicy{
-			ID:             0,
-			IA:             ia,
-			TrafficMatcher: pktcls.CondTrue,
-			PerfPolicy:     DefaultPerfPolicy,
-			PathPolicy:     DefaultPathPolicy,
-			PathCount:      pathCount,
-			Prefixes:       prefixes,
+			ID:                  0,
+			IA:                  ia,
+			TrafficMatcher:      pktcls.CondTrue,
+			PerfPolicy:          DefaultPerfPolicy,
+			PathPolicy:          DefaultPathPolicy,
+			PathCount:           pathCount,
+			MultipathRedundancy: multipathRedundancy,
+			Prefixes:            prefixes,
 		})
 	}
 	return policies, nil
@@ -167,6 +173,9 @@ type SessionPolicy struct {
 	// PathCount  defines the number of paths that can be simultaneously used
 	// within a session.
 	PathCount int
+	// MultiPathRedundancy defines wether redundant communication on two paths
+	// is turned on
+	MultipathRedundancy bool
 	// Prefixes contains the network prefixes that are reachable through this
 	// session.
 	Prefixes []*net.IPNet
@@ -179,10 +188,11 @@ func (sp SessionPolicy) Copy() SessionPolicy {
 		IA:             sp.IA.IAInt().IA(),
 		TrafficMatcher: copyTrafficMatcher(sp.TrafficMatcher),
 		// TODO(lukedirtwalker): find a way to properly copy perf policies.
-		PerfPolicy: sp.PerfPolicy,
-		PathPolicy: copyPathPolicy(sp.PathPolicy),
-		PathCount:  sp.PathCount,
-		Prefixes:   copyPrefixes(sp.Prefixes),
+		PerfPolicy:          sp.PerfPolicy,
+		PathPolicy:          copyPathPolicy(sp.PathPolicy),
+		PathCount:           sp.PathCount,
+		MultipathRedundancy: sp.MultipathRedundancy,
+		Prefixes:            copyPrefixes(sp.Prefixes),
 	}
 }
 

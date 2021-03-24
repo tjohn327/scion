@@ -51,6 +51,7 @@ type worker struct {
 	rlists           map[int]*reassemblyList
 	markedForCleanup bool
 	tunIO            io.Writer
+	packetMemIPV4    []uint16
 }
 
 func newWorker(remote *snet.UDPAddr, sessID uint8,
@@ -77,6 +78,7 @@ func (w *worker) Run() {
 	w.Info("IngressWorker starting", "remote", w.Remote.String(), "session_id", w.SessID)
 	frames := make(ringbuf.EntryList, 64)
 	lastCleanup := time.Now()
+	w.packetMemIPV4 = make([]uint16, 20)
 	for {
 		// This might block indefinitely, thus cleanup will be deferred. However,
 		// this is not an issue, since if there is nothing to read we also don't need
@@ -150,6 +152,14 @@ func (w *worker) cleanup() {
 }
 
 func (w *worker) send(packet common.RawBytes) error {
+	checkSum := extractCheckSum(packet)
+	if contains(checkSum, w.packetMemIPV4) {
+		return nil //duplicate packet
+	}
+	if len(w.packetMemIPV4) >= 20 {
+		w.packetMemIPV4 = w.packetMemIPV4[1:] // dequeue
+	}
+	w.packetMemIPV4 = append(w.packetMemIPV4, checkSum)
 	bytesWritten, err := w.tunIO.Write(packet)
 	if err != nil {
 		increaseCounterMetric(w.Metrics.SendLocalError, 1)
@@ -164,4 +174,23 @@ func (w *worker) send(packet common.RawBytes) error {
 	increaseCounterMetric(w.Metrics.IPPktsLocalSent, 1)
 
 	return nil
+}
+
+func extractCheckSum(packet common.RawBytes) uint16 {
+	version := packet[0] & 0xF0
+	version = version >> 4
+	//check if IPV4
+	if version == 0x4 {
+		return binary.BigEndian.Uint16(packet[10:12])
+	}
+	return 0
+}
+
+func contains(n uint16, mem []uint16) bool {
+	for _, v := range mem {
+		if v == n {
+			return true
+		}
+	}
+	return false
 }

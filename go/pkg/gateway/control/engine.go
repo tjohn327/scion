@@ -284,7 +284,7 @@ func (e *Engine) initWorkers() error {
 
 	for _, config := range e.SessionConfigs {
 		dataplaneSession := e.DataplaneSessionFactory.New(config.ID, config.PolicyID,
-			config.IA, config.Gateway.Data)
+			config.IA, config.Gateway.Data, config.MultiPathRedundancy)
 		remoteIA := config.IA
 		pathMonitorRegistration := e.PathMonitor.Register(remoteIA, &policies.Policies{
 			PathPolicy: config.PathPolicy,
@@ -419,7 +419,8 @@ type PktWriter interface {
 // DataplaneSessionFactory is used to construct a data-plane session with a specific ID towards a
 // remote.
 type DataplaneSessionFactory interface {
-	New(sessID uint8, policyID int, remoteIA addr.IA, remoteAddr net.Addr) DataplaneSession
+	New(sessID uint8, policyID int, remoteIA addr.IA, remoteAddr net.Addr,
+		multiPathRedundancy bool) DataplaneSession
 }
 
 // PathMonitor is used to construct registrations for path discovery.

@@ -90,7 +90,8 @@ type DataplaneSessionFactory struct {
 }
 
 func (dpf DataplaneSessionFactory) New(id uint8, policyID int,
-	remoteIA addr.IA, remoteAddr net.Addr) control.DataplaneSession {
+	remoteIA addr.IA, remoteAddr net.Addr,
+	multiPathRedundancy bool) control.DataplaneSession {
 
 	conn, err := dpf.PacketConnFactory.New()
 	if err != nil {
@@ -105,11 +106,12 @@ func (dpf DataplaneSessionFactory) New(id uint8, policyID int,
 		SendExternalErrors: dpf.Metrics.SendExternalErrors,
 	}
 	sess := &dataplane.Session{
-		SessionID:          id,
-		GatewayAddr:        *remoteAddr.(*net.UDPAddr),
-		DataPlaneConn:      conn,
-		PathStatsPublisher: dpf.PathStatsPublisher,
-		Metrics:            metrics,
+		SessionID:           id,
+		GatewayAddr:         *remoteAddr.(*net.UDPAddr),
+		DataPlaneConn:       conn,
+		PathStatsPublisher:  dpf.PathStatsPublisher,
+		Metrics:             metrics,
+		MultipathRedundancy: multiPathRedundancy,
 	}
 	return sess
 }
