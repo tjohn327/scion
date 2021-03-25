@@ -78,7 +78,7 @@ func (w *worker) Run() {
 	w.Info("IngressWorker starting", "remote", w.Remote.String(), "session_id", w.SessID)
 	frames := make(ringbuf.EntryList, 64)
 	lastCleanup := time.Now()
-	w.packetMemIPV4 = make([]uint16, 20)
+	w.packetMemIPV4 = make([]uint16, 1024)
 	for {
 		// This might block indefinitely, thus cleanup will be deferred. However,
 		// this is not an issue, since if there is nothing to read we also don't need
@@ -156,7 +156,7 @@ func (w *worker) send(packet common.RawBytes) error {
 	if contains(checkSum, w.packetMemIPV4) {
 		return nil //duplicate packet
 	}
-	if len(w.packetMemIPV4) >= 20 {
+	if len(w.packetMemIPV4) >= 1024 {
 		w.packetMemIPV4 = w.packetMemIPV4[1:] // dequeue
 	}
 	w.packetMemIPV4 = append(w.packetMemIPV4, checkSum)
