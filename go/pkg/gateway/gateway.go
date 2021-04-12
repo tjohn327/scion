@@ -196,6 +196,8 @@ type Gateway struct {
 	ProbeServerAddr *net.UDPAddr
 	// ProbeClientIP is the IP from which local probes will be sent out.
 	ProbeClientIP net.IP
+	// PathProbeInterval is how often probes will be sent out.
+	PathProbeInterval string
 
 	// DataServerAddr is the address for encapsulated data traffic received from other gateways.
 	DataServerAddr *net.UDPAddr
@@ -284,7 +286,7 @@ func (g *Gateway) Run() error {
 			RevocationHandler:  revocationHandler,
 			Router:             pathRouter,
 			PathUpdateInterval: PathUpdateInterval(),
-			ProbeInterval:      ProbeInterval(),
+			ProbeInterval:      ProbeInterval(g.PathProbeInterval),
 			RemoteWatcherFactory: &pathhealth.DefaultRemoteWatcherFactory{
 				PathWatcherFactory: &pathhealth.DefaultPathWatcherFactory{
 					Logger: g.Logger,
@@ -696,14 +698,10 @@ func PathUpdateInterval() time.Duration {
 	return dur
 }
 
-func ProbeInterval() time.Duration {
-	s, ok := os.LookupEnv("SCION_EXPERIMENTAL_GATEWAY_PROBE_INTERVAL")
-	if !ok {
-		return 0
-	}
+func ProbeInterval(s string) time.Duration {
 	dur, err := util.ParseDuration(s)
 	if err != nil {
-		log.Info("Failed to parse SCION_EXPERIMENTAL_GATEWAY_PROBE_INTERVAL, using default",
+		log.Info("Failed to parse PathProbeInterval, using default",
 			"err", err)
 		return 0
 	}

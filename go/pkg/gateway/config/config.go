@@ -47,6 +47,8 @@ type Gateway struct {
 	CtrlAddr string `toml:"ctrl_addr,omitempty"`
 	// Data plane address, for frames.
 	DataAddr string `toml:"data_addr,omitempty"`
+	// Probe interval for path health monitoring
+	PathProbeInterval string `toml:"path_probe_interval,omitempty"`
 }
 
 func (cfg *Gateway) Validate() error {

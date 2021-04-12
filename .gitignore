@@ -89,3 +89,5 @@ _build
 # IntelliJ folder
 #########################
 .idea/
+
+go/posix-gateway/posix-gateway
