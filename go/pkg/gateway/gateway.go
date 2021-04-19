@@ -16,7 +16,9 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -677,6 +679,26 @@ func (g *Gateway) Run() error {
 	g.HTTPEndpoints["ip-routing/policy"] = routing.NewPolicyHandler(
 		RoutingPolicyPublisherAdapter{ConfigPublisher: configPublisher},
 		"")
+
+	g.HTTPEndpoints["session-policies"] = func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			rawPolicy, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			var p control.SessionPolicies
+			if p, err = legacySessionPolicyAdapter.Parse(rawPolicy); err != nil {
+				http.Error(w, fmt.Sprintf("Error parsing: %v", err), http.StatusBadRequest)
+				return
+			}
+			configPublisher.Publish(p, nil)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
 
 	if err := g.HTTPEndpoints.Register(g.HTTPServeMux, g.ID); err != nil {
 		return serrors.WrapStr("registering HTTP pages", err)
