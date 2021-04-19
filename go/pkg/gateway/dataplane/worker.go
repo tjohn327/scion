@@ -149,12 +149,18 @@ func (w *worker) cleanup() {
 			rlist.markedForDeletion = true
 		}
 	}
+	// w.packetMemIPV4 = w.packetMemIPV4[:0]
 }
 
 func (w *worker) send(packet common.RawBytes) error {
-	if w.checkDuplicate(packet) {
-		return nil
+	checkSum := extractCheckSum(packet)
+	if contains(checkSum, w.packetMemIPV4) {
+		return nil //duplicate packet
 	}
+	if len(w.packetMemIPV4) >= 1024 {
+		w.packetMemIPV4 = w.packetMemIPV4[1:] // dequeue
+	}
+	w.packetMemIPV4 = append(w.packetMemIPV4, checkSum)
 	bytesWritten, err := w.tunIO.Write(packet)
 	if err != nil {
 		increaseCounterMetric(w.Metrics.SendLocalError, 1)
@@ -169,18 +175,6 @@ func (w *worker) send(packet common.RawBytes) error {
 	increaseCounterMetric(w.Metrics.IPPktsLocalSent, 1)
 
 	return nil
-}
-
-func (w *worker) checkDuplicate(packet common.RawBytes) bool {
-	checkSum := extractCheckSum(packet)
-	if contains(checkSum, w.packetMemIPV4) {
-		return false //duplicate packet
-	}
-	if len(w.packetMemIPV4) >= 1024 {
-		w.packetMemIPV4 = w.packetMemIPV4[1:] // dequeue
-	}
-	w.packetMemIPV4 = append(w.packetMemIPV4, checkSum)
-	return true
 }
 
 func extractCheckSum(packet common.RawBytes) uint16 {
