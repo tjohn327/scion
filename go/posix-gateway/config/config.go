@@ -20,6 +20,7 @@ import (
 	"github.com/scionproto/scion/go/lib/config"
 	"github.com/scionproto/scion/go/lib/env"
 	"github.com/scionproto/scion/go/lib/log"
+	"github.com/scionproto/scion/go/pkg/api"
 	gatewayconfig "github.com/scionproto/scion/go/pkg/gateway/config"
 )
 
@@ -30,6 +31,7 @@ type Config struct {
 	Daemon   env.SCIONDClient      `toml:"sciond_connection,omitempty"`
 	Gateway  gatewayconfig.Gateway `toml:"gateway,omitempty"`
 	Tunnel   gatewayconfig.Tunnel  `toml:"tunnel,omitempty"`
+	API      api.Config            `toml:"api,omitempty"`
 }
 
 func (cfg *Config) InitDefaults() {
@@ -40,6 +42,7 @@ func (cfg *Config) InitDefaults() {
 		&cfg.Daemon,
 		&cfg.Gateway,
 		&cfg.Tunnel,
+		&cfg.API,
 	)
 }
 
@@ -51,6 +54,7 @@ func (cfg *Config) Validate() error {
 		&cfg.Daemon,
 		&cfg.Gateway,
 		&cfg.Tunnel,
+		&cfg.API,
 	)
 }
 
@@ -62,5 +66,6 @@ func (cfg *Config) Sample(dst io.Writer, path config.Path, _ config.CtxMap) {
 		&cfg.Daemon,
 		&cfg.Gateway,
 		&cfg.Tunnel,
+		&cfg.API,
 	)
 }

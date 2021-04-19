@@ -127,6 +127,16 @@ func realMain() error {
 		reloadConfigTrigger <- struct{}{}
 	})
 
+	if globalCfg.API.Addr != "" {
+		log.Info("Exposing API", "addr", globalCfg.API.Addr)
+		go func() {
+			defer log.HandlePanic()
+			if err := http.ListenAndServe(globalCfg.API.Addr, gw.HTTPServeMux); err != nil {
+				fatal.Fatal(serrors.WrapStr("serving HTTP API", err))
+			}
+		}()
+	}
+
 	select {
 	case err := <-errs:
 		return err
