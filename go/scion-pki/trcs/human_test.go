@@ -26,7 +26,9 @@ import (
 )
 
 func TestGetHumanEncoding(t *testing.T) {
-	trc, err := trcs.DecodeFromFile("testdata/admin/ISD-B1-S1.trc")
+	trc, err := trcs.DecodeFromFile("testdata/admin/ISD1-B1-S1.trc")
+	require.NoError(t, err)
+	trcpem, err := trcs.DecodeFromFile("testdata/admin/ISD1-B1-S1.pem.trc")
 	require.NoError(t, err)
 	testCases := map[string]struct {
 		Encoding string
@@ -51,6 +53,26 @@ func TestGetHumanEncoding(t *testing.T) {
 		"yaml TRC": {
 			Encoding: "yaml",
 			Raw:      trc.TRC.Raw,
+			Golden:   "testdata/human.yml",
+		},
+		"json signed TRC pem": {
+			Encoding: "json",
+			Raw:      trcpem.Raw,
+			Golden:   "testdata/human.signed.json",
+		},
+		"json TRC pem": {
+			Encoding: "json",
+			Raw:      trcpem.TRC.Raw,
+			Golden:   "testdata/human.json",
+		},
+		"yaml signed TRC pem": {
+			Encoding: "yaml",
+			Raw:      trcpem.Raw,
+			Golden:   "testdata/human.signed.yml",
+		},
+		"yaml TRC pem": {
+			Encoding: "yaml",
+			Raw:      trcpem.TRC.Raw,
 			Golden:   "testdata/human.yml",
 		},
 	}

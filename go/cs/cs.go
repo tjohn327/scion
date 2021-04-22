@@ -54,13 +54,17 @@ import (
 	libmetrics "github.com/scionproto/scion/go/lib/metrics"
 	"github.com/scionproto/scion/go/lib/pathdb"
 	"github.com/scionproto/scion/go/lib/periodic"
+	"github.com/scionproto/scion/go/lib/prom"
 	"github.com/scionproto/scion/go/lib/scrypto"
 	"github.com/scionproto/scion/go/lib/scrypto/cppki"
 	"github.com/scionproto/scion/go/lib/serrors"
 	"github.com/scionproto/scion/go/lib/snet"
 	"github.com/scionproto/scion/go/lib/sock/reliable"
 	"github.com/scionproto/scion/go/lib/topology"
+	"github.com/scionproto/scion/go/pkg/api/jwtauth"
 	"github.com/scionproto/scion/go/pkg/app/launcher"
+	caapi "github.com/scionproto/scion/go/pkg/ca/api"
+	caconfig "github.com/scionproto/scion/go/pkg/ca/config"
 	"github.com/scionproto/scion/go/pkg/ca/renewal"
 	renewalgrpc "github.com/scionproto/scion/go/pkg/ca/renewal/grpc"
 	"github.com/scionproto/scion/go/pkg/command"
@@ -292,46 +296,112 @@ func realMain() error {
 
 	var chainBuilder renewal.ChainBuilder
 	if topo.CA() {
-		renewalDB, err := storage.NewRenewalStorage(globalCfg.RenewalDB)
-		if err != nil {
-			return serrors.WrapStr("initializing renewal database", err)
-		}
-		defer renewalDB.Close()
-		if err := cs.LoadClientChains(renewalDB, globalCfg.General.ConfigDir); err != nil {
-			return serrors.WrapStr("loading client certificate chains", err)
-		}
-		chainBuilder = cs.NewChainBuilder(
-			topo.IA(),
-			trustDB,
-			globalCfg.CA.MaxASValidity.Duration,
-			globalCfg.General.ConfigDir,
-		)
+		renewalGauges := libmetrics.NewPromGauge(metrics.RenewalRegisteredHandlers)
+		libmetrics.GaugeWith(renewalGauges, "type", "legacy").Set(0)
+		libmetrics.GaugeWith(renewalGauges, "type", "in-process").Set(0)
+		libmetrics.GaugeWith(renewalGauges, "type", "delegating").Set(0)
+		srvCtr := libmetrics.NewPromCounter(metrics.RenewalServerRequestsTotal)
 		renewalServer := &renewalgrpc.RenewalServer{
-			Verifier: renewal.RequestVerifier{
-				TRCFetcher: trustDB,
+			IA:        topo.IA(),
+			CMSSigner: signer,
+			Metrics: renewalgrpc.RenewalServerMetrics{
+				Success:       srvCtr.With(prom.LabelResult, prom.StatusOk),
+				BackendErrors: srvCtr.With(prom.LabelResult, prom.StatusErr),
 			},
-			ChainBuilder: chainBuilder,
-			DB:           renewalDB,
-			IA:           topo.IA(),
-			Signer:       signer,
-			Requests:     libmetrics.NewPromCounter(cstrustmetrics.Handler.Requests),
 		}
+		var renewalDB renewal.DB
+		if !globalCfg.CA.DisableLegacyRequest || globalCfg.CA.Mode == config.InProcess {
+			renewalDB, err = storage.NewRenewalStorage(globalCfg.RenewalDB)
+			if err != nil {
+				return serrors.WrapStr("initializing renewal database", err)
+			}
+			defer renewalDB.Close()
+			if err := cs.LoadClientChains(renewalDB, globalCfg.General.ConfigDir); err != nil {
+				return serrors.WrapStr("loading client certificate chains", err)
+			}
+			chainBuilder = cs.NewChainBuilder(
+				topo.IA(),
+				trustDB,
+				globalCfg.CA.MaxASValidity.Duration,
+				globalCfg.General.ConfigDir,
+			)
+			periodic.Start(
+				periodic.Func{
+					TaskName: "update client certificates from disk",
+					Task: func(ctx context.Context) {
+						err := cs.LoadClientChains(renewalDB, globalCfg.General.ConfigDir)
+						if err != nil {
+							log.Debug("loading client certificate chains", "error", err)
+						}
+					},
+				},
+				30*time.Second,
+				5*time.Second,
+			)
+		}
+
+		if !globalCfg.CA.DisableLegacyRequest {
+			legacyCtr := libmetrics.NewPromCounter(metrics.RenewalLegacyHandlerRequestsTotal)
+			libmetrics.GaugeWith(renewalGauges, "type", "legacy").Set(1)
+			renewalServer.LegacyHandler = &renewalgrpc.Legacy{
+				Signer:       signer,
+				DB:           renewalDB,
+				ChainBuilder: chainBuilder,
+				Verifier: renewal.RequestVerifier{
+					TRCFetcher: trustDB,
+				},
+				Metrics: renewalgrpc.LegacyHandlerMetrics{
+					Success:       legacyCtr.With(prom.LabelResult, prom.StatusOk),
+					DatabaseError: legacyCtr.With(prom.LabelResult, prom.ErrDB),
+					InternalError: legacyCtr.With(prom.LabelResult, prom.ErrInternal),
+					NotFoundError: legacyCtr.With(prom.LabelResult, prom.ErrNotFound),
+					ParseError:    legacyCtr.With(prom.LabelResult, prom.ErrParse),
+					VerifyError:   legacyCtr.With(prom.LabelResult, prom.ErrVerify),
+				},
+			}
+		}
+
+		switch globalCfg.CA.Mode {
+		case config.InProcess:
+			libmetrics.GaugeWith(renewalGauges, "type", "in-process").Set(1)
+			cmsCtr := libmetrics.NewPromCounter(metrics.RenewalCMSHandlerRequestsTotal)
+			renewalServer.CMSHandler = &renewalgrpc.CMS{
+				DB:           renewalDB,
+				IA:           topo.IA(),
+				ChainBuilder: chainBuilder,
+				Verifier: renewal.RequestVerifier{
+					TRCFetcher: trustDB,
+				},
+				Metrics: renewalgrpc.CMSHandlerMetrics{
+					Success:       cmsCtr.With(prom.LabelResult, prom.StatusOk),
+					DatabaseError: cmsCtr.With(prom.LabelResult, prom.ErrDB),
+					InternalError: cmsCtr.With(prom.LabelResult, prom.ErrInternal),
+					NotFoundError: cmsCtr.With(prom.LabelResult, prom.ErrNotFound),
+					ParseError:    cmsCtr.With(prom.LabelResult, prom.ErrParse),
+					VerifyError:   cmsCtr.With(prom.LabelResult, prom.ErrVerify),
+				},
+			}
+		case config.Delegating:
+			libmetrics.GaugeWith(renewalGauges, "type", "delegating").Set(1)
+
+			sharedSecret := caconfig.NewPEMSymmetricKey(globalCfg.CA.Service.SharedSecret)
+			renewalServer.CMSHandler = &renewalgrpc.DelegatingHandler{
+				Client: &caapi.Client{
+					Server: globalCfg.CA.Service.Address,
+					Client: jwtauth.NewHTTPClient(
+						&jwtauth.JWTTokenSource{
+							Subject:   globalCfg.General.ID,
+							Generator: sharedSecret.Get,
+						},
+					),
+				},
+			}
+		default:
+			return serrors.New("unsupported CA handler", "mode", globalCfg.CA.Mode)
+		}
+
 		cppb.RegisterChainRenewalServiceServer(quicServer, renewalServer)
 		cppb.RegisterChainRenewalServiceServer(tcpServer, renewalServer)
-
-		periodic.Start(
-			periodic.Func{
-				TaskName: "update client certificates from disk",
-				Task: func(ctx context.Context) {
-					err := cs.LoadClientChains(renewalDB, globalCfg.General.ConfigDir)
-					if err != nil {
-						log.Debug("loading client certificate chains", "error", err)
-					}
-				},
-			},
-			30*time.Second,
-			5*time.Second,
-		)
 	}
 
 	// Frequently regenerate signers to catch problems, and update the metrics.

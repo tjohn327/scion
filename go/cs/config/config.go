@@ -17,6 +17,7 @@ package config
 
 import (
 	"io"
+	"strings"
 	"time"
 
 	"github.com/scionproto/scion/go/lib/config"
@@ -273,19 +274,66 @@ type CA struct {
 	config.NoDefaulter
 	// MaxASValidity is the maximum AS certificate lifetime.
 	MaxASValidity util.DurWrap `toml:"max_as_validity,omitempty"`
+	// DisableLegacyRequest disables the handler for certificate issuance
+	// requests received in the protobuf signature format, thus allowing only
+	// requests received in the CMS format.
+	DisableLegacyRequest bool `toml:"disable_legacy_request,omitempty"`
+	// Mode defines whether the Control Service should handle certificate
+	// issuance requests on its own, or whether to delegate handling to a
+	// dedicated Certificate Authority. If it is the empty string, the
+	// in-process mode is selected as the default.
+	Mode CAMode `toml:"mode,omitempty"`
+	// Service contains details about CA functionality delegation.
+	Service CAService `toml:"service,omitempty"`
 }
 
 func (cfg *CA) Validate() error {
 	if cfg.MaxASValidity.Duration == 0 {
 		cfg.MaxASValidity.Duration = DefaultMaxASValidity
 	}
+	if cfg.Mode == "" {
+		cfg.Mode = InProcess
+	}
+	switch strings.ToLower(string(cfg.Mode)) {
+	case string(Delegating):
+		cfg.Mode = Delegating
+	case string(InProcess):
+		cfg.Mode = InProcess
+	default:
+		return serrors.New("unknown CA mode", "mode", cfg.Mode)
+	}
 	return nil
 }
 
-func (cfg *CA) Sample(dst io.Writer, _ config.Path, _ config.CtxMap) {
+func (cfg *CA) Sample(dst io.Writer, path config.Path, ctx config.CtxMap) {
 	config.WriteString(dst, caSample)
+	config.WriteSample(dst, path, ctx, &cfg.Service)
 }
 
 func (cfg *CA) ConfigName() string {
 	return "ca"
+}
+
+type CAMode string
+
+const (
+	Delegating CAMode = "delegating"
+	InProcess  CAMode = "in-process"
+)
+
+// CAService contains details about CA functionality delegation.
+type CAService struct {
+	// SharedSecret is the path to the PEM-encoded shared secret that is used to
+	// create JWT tokens.
+	SharedSecret string `toml:"shared_secret,omitempty"`
+	// Address of the CA Service that handles the delegated certificate renewal requests.
+	Address string `toml:"addr,omitempty"`
+}
+
+func (cfg *CAService) Sample(dst io.Writer, _ config.Path, _ config.CtxMap) {
+	config.WriteString(dst, serviceSample)
+}
+
+func (cfg *CAService) ConfigName() string {
+	return "service"
 }
