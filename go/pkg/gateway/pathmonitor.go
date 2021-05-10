@@ -37,6 +37,7 @@ func (pm *PathMonitor) Register(remote addr.IA, policies *policies.Policies,
 	reg := pm.Monitor.Register(remote, &pathhealth.FilteringPathSelector{
 		PathPolicy:      policies.PathPolicy,
 		PathCount:       policies.PathCount,
+		PerfPolicy:      policies.PerfPolicy,
 		RevocationStore: pm.revStore,
 	})
 	return &registration{

@@ -452,6 +452,7 @@ func (g *Gateway) Run() error {
 			PathMonitor: pathMonitor,
 			Policies: &policies.Policies{
 				PathPolicy: control.DefaultPathPolicy,
+				PerfPolicy: control.DefaultPerfPolicy,
 			},
 			Dialer: &libgrpc.QUICDialer{
 				Dialer: quicClientDialer,

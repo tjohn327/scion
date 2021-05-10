@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
 )
 
 const (
@@ -34,10 +35,18 @@ type PathPolicy interface {
 	Filter(paths []snet.Path) []snet.Path
 }
 
+type PerfPolicy interface {
+	// Better is a function that takes two paths and decides whether the first
+	// one is "better" according to the policy.
+	Better(x, y *policies.Stats) bool
+}
+
 // FilteringPathSelector selects the best paths from a filtered set of paths.
 type FilteringPathSelector struct {
 	// PathPolicy is used to determine which paths are eligible and which are not.
 	PathPolicy PathPolicy
+	// PerfPolicy determines how to select a path if there are several eligible
+	PerfPolicy PerfPolicy
 	// RevocationStore keeps track of the revocations.
 	RevocationStore
 	// PathCount is the max number of paths to return to the user. Defaults to 1.
@@ -49,9 +58,8 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 	type Allowed struct {
 		Fingerprint snet.PathFingerprint
 		Path        snet.Path
+		Stats       policies.Stats
 		Selectable  Selectable
-		IsCurrent   bool
-		IsRevoked   bool
 	}
 
 	// Sort out the paths allowed by the path policy.
@@ -65,18 +73,20 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 			continue
 		}
 
-		state := selectable.State()
-		if !state.IsAlive {
+		// state := selectable.State()
+		stats := selectable.Stats()
+		if !stats.IsAlive {
 			dead = append(dead, path)
 			continue
 		}
 		fingerprint := snet.Fingerprint(path)
 		_, isCurrent := current[fingerprint]
+		stats.IsCurrent = isCurrent
+		stats.IsRevoked = f.RevocationStore.IsRevoked(path)
 		allowed = append(allowed, Allowed{
 			Path:        path,
+			Stats:       stats,
 			Fingerprint: fingerprint,
-			IsCurrent:   isCurrent,
-			IsRevoked:   f.RevocationStore.IsRevoked(path),
 		})
 	}
 	// Sort the allowed paths according the the perf policy.
@@ -84,11 +94,16 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 		// If some of the paths are alive (probes are passing through), yet still revoked
 		// prefer the non-revoked paths as the revoked ones may be flaky.
 		switch {
-		case allowed[i].IsRevoked && !allowed[j].IsRevoked:
+		case allowed[i].Stats.IsRevoked && !allowed[j].Stats.IsRevoked:
 			return false
-		case !allowed[i].IsRevoked && allowed[j].IsRevoked:
+		case !allowed[i].Stats.IsRevoked && allowed[j].Stats.IsRevoked:
 			return true
 		}
+
+		if f.PerfPolicy != nil {
+			return f.PerfPolicy.Better(&allowed[i].Stats, &allowed[j].Stats)
+		}
+
 		if shorter, ok := isShorter(allowed[i].Path, allowed[j].Path); ok {
 			return shorter
 		}
@@ -101,7 +116,7 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 	info = append(info, fmt.Sprintf(format, "STATE", "PATH"))
 	for _, a := range allowed {
 		var state string
-		if a.IsCurrent {
+		if a.Stats.IsCurrent {
 			state = "-->"
 		}
 		info = append(info, fmt.Sprintf(format, state, a.Path))
@@ -134,7 +149,7 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 	}
 }
 
-// isPathAllowed returns true is path is allowed by the policy.
+// isPathAllowed returns true if path is allowed by the policy.
 func isPathAllowed(policy PathPolicy, path snet.Path) bool {
 	if policy == nil {
 		return true

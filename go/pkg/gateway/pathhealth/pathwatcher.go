@@ -24,6 +24,7 @@ import (
 	"github.com/scionproto/scion/go/lib/serrors"
 	"github.com/scionproto/scion/go/lib/slayers/path/scion"
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
 )
 
 // DefaultPathWatcherFactory creates PathWatchers.
@@ -41,12 +42,18 @@ func (f *DefaultPathWatcherFactory) New(remote addr.IA, path snet.Path, id uint1
 		"path", fmt.Sprint(path),
 	)
 	log.SafeInfo(logger, "Path monitoring started")
-
+	probeStats := make(map[uint16]*probeStat)
 	return &DefaultPathWatcher{
 		remote: remote,
 		id:     id,
 		path:   path.Copy(),
 		logger: logger,
+		pathState: pathState{
+			stats: policies.Stats{
+				Fingerprint: snet.Fingerprint(path),
+			},
+			probeStats: probeStats,
+		},
 	}
 }
 
@@ -97,13 +104,13 @@ func (pw *DefaultPathWatcher) SendProbe(conn snet.PacketConn, localAddr snet.SCI
 		log.SafeError(pw.logger, "Failed to send path probe", "err", err)
 		return
 	}
-	pw.pathState.sendProbe(time.Now())
+	pw.pathState.sendProbe(time.Now(), pw.nextSeq)
 	pw.nextSeq++
 }
 
 // HandleProbeReply dispatches a single probe reply packet.
 func (pw *DefaultPathWatcher) HandleProbeReply(seq uint16) {
-	pw.pathState.receiveProbe(time.Now())
+	pw.pathState.receiveProbe(time.Now(), seq)
 }
 
 // Path returns a fresh copy of the monitored path.
@@ -116,6 +123,11 @@ func (pw *DefaultPathWatcher) State() State {
 	return State{
 		IsAlive: pw.pathState.active(),
 	}
+}
+
+// Stats returns the stats of the monitored path.
+func (pw *DefaultPathWatcher) Stats() policies.Stats {
+	return pw.pathState.getStats()
 }
 
 // Close stops the PathWatcher.
@@ -163,11 +175,32 @@ type pathState struct {
 	mu                sync.Mutex
 	consecutiveProbes int
 	lastReceived      time.Time
+	lastSent          time.Time
+	lastSeq           uint16
+	stats             policies.Stats
+	probeStats        map[uint16]*probeStat
 }
 
-func (s *pathState) sendProbe(now time.Time) {
+type probeStat struct {
+	sent     time.Time
+	received time.Time
+	latency  time.Duration
+	dropped  bool
+}
+
+func (s *pathState) sendProbe(now time.Time, seq uint16) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastSent = now
+	s.lastSeq = seq
+	for _, probeStat := range s.probeStats {
+		if probeStat.received.IsZero() {
+			if probeStat.sent.Add(defaultProbeInterval * 2).Before(now) {
+				probeStat.dropped = true
+			}
+		}
+	}
+	s.probeStats[seq] = &probeStat{sent: now, received: time.Time{}}
 	// Probe timed out.
 	if s.lastReceived.Add(defaultProbeInterval * 2).Before(now) {
 		s.consecutiveProbes = 0
@@ -175,13 +208,57 @@ func (s *pathState) sendProbe(now time.Time) {
 	}
 }
 
-func (s *pathState) receiveProbe(now time.Time) {
+func (s *pathState) receiveProbe(now time.Time, seq uint16) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastReceived = now
+	probeStat := s.probeStats[seq]
+	probeStat.received = now
+	probeStat.latency = now.Sub(probeStat.sent)
+	if s.lastSeq == seq {
+		s.stats.Latency = now.Sub(s.lastSent)
+	}
 	if s.consecutiveProbes < 3 {
 		s.consecutiveProbes++
 	}
+}
+
+func (s *pathState) getStats() policies.Stats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var dropped float64 = 0
+	var totalLatency int64 = 0
+	var latencyDiff int64 = 0
+	var lastLatency int64 = 0
+	var num int64 = 0
+	for _, probeStat := range s.probeStats {
+
+		if probeStat.dropped {
+			dropped++
+		} else if !probeStat.received.IsZero() {
+			latency := probeStat.latency.Nanoseconds()
+			totalLatency += latency
+			if lastLatency != 0 {
+				latencyDiff += getAbsValue(latency - lastLatency)
+			}
+			lastLatency = latency
+			num++
+		}
+	}
+	if num > 0 {
+		s.stats.DropRate = dropped / float64(len(s.probeStats))
+		s.stats.Latency = time.Duration(totalLatency / num)
+		s.stats.Jitter = time.Duration(latencyDiff / (num - 1))
+	}
+	s.stats.IsAlive = s.consecutiveProbes == 3
+	return s.stats
+}
+
+func getAbsValue(val int64) int64 {
+	if val < 0 {
+		return -val
+	}
+	return val
 }
 
 func (s *pathState) active() bool {

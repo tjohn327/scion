@@ -33,7 +33,7 @@ var (
 			Entries: []*pathpol.ACLEntry{{Action: pathpol.Allow}},
 		},
 	}
-	DefaultPerfPolicy = fingerPrintOrder{}
+	DefaultPerfPolicy = &fingerPrintOrder{}
 	DefaultPathCount  = 1
 )
 
@@ -234,4 +234,5 @@ func copyPrefixes(prefixes []*net.IPNet) []*net.IPNet {
 
 type fingerPrintOrder struct{}
 
-func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Fingerprint < y.Fingerprint }
+// func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Fingerprint < y.Fingerprint }
+func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Latency < y.Latency }

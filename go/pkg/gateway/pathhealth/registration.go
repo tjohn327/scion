@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
 )
 
 // State is the path state used during selection.
@@ -30,6 +31,7 @@ type State struct {
 type Selectable interface {
 	Path() snet.Path
 	State() State
+	Stats() policies.Stats
 }
 
 // FingerprintSet is a set of path fingerprints.

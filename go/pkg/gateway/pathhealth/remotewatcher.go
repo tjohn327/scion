@@ -24,6 +24,7 @@ import (
 	"github.com/scionproto/scion/go/lib/log"
 	"github.com/scionproto/scion/go/lib/metrics"
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
 )
 
 const (
@@ -51,6 +52,8 @@ type PathWatcher interface {
 	Path() snet.Path
 	// State returns the state of the monitored path.
 	State() State
+	// Stats returns the stats of the monitored path.
+	Stats() policies.Stats
 	// Close stops the PathWatcher.
 	Close()
 }
