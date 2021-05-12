@@ -193,7 +193,15 @@ func (s *pathState) sendProbe(now time.Time, seq uint16) {
 	defer s.mu.Unlock()
 	s.lastSent = now
 	s.lastSeq = seq
-	for _, probeStat := range s.probeStats {
+	for k, probeStat := range s.probeStats {
+		if s.lastSeq >= 65534 {
+			delete(s.probeStats, k)
+			continue
+		}
+		if s.lastSeq > 20 && k < s.lastSeq-20 {
+			delete(s.probeStats, k)
+			continue
+		}
 		if probeStat.received.IsZero() {
 			if probeStat.sent.Add(defaultProbeInterval * 2).Before(now) {
 				probeStat.dropped = true
@@ -245,11 +253,13 @@ func (s *pathState) getStats() policies.Stats {
 			num++
 		}
 	}
-	if num > 0 {
+	if num > 2 {
 		s.stats.DropRate = dropped / float64(len(s.probeStats))
 		s.stats.Latency = time.Duration(totalLatency / num)
 		s.stats.Jitter = time.Duration(latencyDiff / (num - 1))
 	}
+	//dummy bandwidth
+	s.stats.Bandwidth = 100
 	s.stats.IsAlive = s.consecutiveProbes == 3
 	return s.stats
 }

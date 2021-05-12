@@ -39,6 +39,7 @@ func (pm *PathMonitor) Register(remote addr.IA, policies *policies.Policies,
 		PathCount:       policies.PathCount,
 		PerfPolicy:      policies.PerfPolicy,
 		RevocationStore: pm.revStore,
+		Mode:            policies.Mode,
 	})
 	return &registration{
 		Registration: reg,

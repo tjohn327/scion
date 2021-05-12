@@ -34,6 +34,12 @@ var (
 	crcTable = crc64.MakeTable(crc64.ECMA)
 )
 
+const (
+	Normal = iota
+	MultiPath
+	AdaptiveMultiPath
+)
+
 type PathStatsPublisher interface {
 	PublishEgressStats(fingerprint string, frames int64, bytes int64)
 }
@@ -54,12 +60,12 @@ type SessionMetrics struct {
 }
 
 type Session struct {
-	SessionID           uint8
-	GatewayAddr         net.UDPAddr
-	DataPlaneConn       net.PacketConn
-	PathStatsPublisher  PathStatsPublisher
-	Metrics             SessionMetrics
-	MultipathRedundancy bool
+	SessionID          uint8
+	GatewayAddr        net.UDPAddr
+	DataPlaneConn      net.PacketConn
+	PathStatsPublisher PathStatsPublisher
+	Metrics            SessionMetrics
+	Mode               int
 
 	mutex sync.Mutex
 	// senders is a list of currently used senders.
@@ -79,7 +85,6 @@ func (s *Session) Close() {
 func (s *Session) Write(packet gopacket.Packet) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
 	if len(s.senders) == 0 {
 		return
 	}
@@ -87,7 +92,7 @@ func (s *Session) Write(packet gopacket.Packet) {
 		s.senders[0].Write(packet.Data())
 		return
 	}
-	if s.MultipathRedundancy {
+	if s.Mode == MultiPath || s.Mode == AdaptiveMultiPath {
 		for _, sender := range s.senders {
 			sender.Write(packet.Data())
 		}

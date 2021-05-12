@@ -93,7 +93,7 @@ type DataplaneSessionFactory struct {
 
 func (dpf DataplaneSessionFactory) New(id uint8, policyID int,
 	remoteIA addr.IA, remoteAddr net.Addr,
-	multiPathRedundancy bool) control.DataplaneSession {
+	mode policies.PathMode) control.DataplaneSession {
 
 	conn, err := dpf.PacketConnFactory.New()
 	if err != nil {
@@ -108,12 +108,12 @@ func (dpf DataplaneSessionFactory) New(id uint8, policyID int,
 		SendExternalErrors: dpf.Metrics.SendExternalErrors,
 	}
 	sess := &dataplane.Session{
-		SessionID:           id,
-		GatewayAddr:         *remoteAddr.(*net.UDPAddr),
-		DataPlaneConn:       conn,
-		PathStatsPublisher:  dpf.PathStatsPublisher,
-		Metrics:             metrics,
-		MultipathRedundancy: multiPathRedundancy,
+		SessionID:          id,
+		GatewayAddr:        *remoteAddr.(*net.UDPAddr),
+		DataPlaneConn:      conn,
+		PathStatsPublisher: dpf.PathStatsPublisher,
+		Metrics:            metrics,
+		Mode:               int(mode),
 	}
 	return sess
 }
@@ -453,6 +453,7 @@ func (g *Gateway) Run() error {
 			Policies: &policies.Policies{
 				PathPolicy: control.DefaultPathPolicy,
 				PerfPolicy: control.DefaultPerfPolicy,
+				Mode:       control.DefaultPathMode,
 			},
 			Dialer: &libgrpc.QUICDialer{
 				Dialer: quicClientDialer,

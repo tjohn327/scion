@@ -284,12 +284,13 @@ func (e *Engine) initWorkers() error {
 
 	for _, config := range e.SessionConfigs {
 		dataplaneSession := e.DataplaneSessionFactory.New(config.ID, config.PolicyID,
-			config.IA, config.Gateway.Data, config.MultiPathRedundancy)
+			config.IA, config.Gateway.Data, config.Mode)
 		remoteIA := config.IA
 		pathMonitorRegistration := e.PathMonitor.Register(remoteIA, &policies.Policies{
 			PathPolicy: config.PathPolicy,
 			PerfPolicy: config.PerfPolicy,
 			PathCount:  config.PathCount,
+			Mode:       config.Mode,
 		}, config.PolicyID)
 		probeConn, err := e.ProbeConnFactory.New()
 		if err != nil {
@@ -420,7 +421,7 @@ type PktWriter interface {
 // remote.
 type DataplaneSessionFactory interface {
 	New(sessID uint8, policyID int, remoteIA addr.IA, remoteAddr net.Addr,
-		multiPathRedundancy bool) DataplaneSession
+		mode policies.PathMode) DataplaneSession
 }
 
 // PathMonitor is used to construct registrations for path discovery.

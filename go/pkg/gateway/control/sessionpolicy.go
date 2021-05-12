@@ -33,8 +33,9 @@ var (
 			Entries: []*pathpol.ACLEntry{{Action: pathpol.Allow}},
 		},
 	}
-	DefaultPerfPolicy = &fingerPrintOrder{}
-	DefaultPathCount  = 1
+	DefaultPerfPolicy policies.PerfPolicy = &fingerPrintOrder{}
+	DefaultPathCount                      = 1
+	DefaultPathMode                       = policies.Normal
 )
 
 // LegacySessionPolicyAdapter parses the legacy gateway JSON configuration and
@@ -45,9 +46,10 @@ type LegacySessionPolicyAdapter struct{}
 func (LegacySessionPolicyAdapter) Parse(raw []byte) (SessionPolicies, error) {
 	type JSONFormat struct {
 		ASes map[addr.IA]struct {
-			Nets                []string
-			PathCount           int
-			MultiPathRedundancy bool
+			Nets           []string
+			PathCount      int
+			Mode           string
+			PathPreference policies.PathPerfWeights
 		}
 		ConfigVersion uint64
 	}
@@ -55,7 +57,7 @@ func (LegacySessionPolicyAdapter) Parse(raw []byte) (SessionPolicies, error) {
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return nil, serrors.WrapStr("parsing JSON", err)
 	}
-	policies := make(SessionPolicies, 0, len(cfg.ASes))
+	sessionPolicies := make(SessionPolicies, 0, len(cfg.ASes))
 	for ia, asEntry := range cfg.ASes {
 		prefixes, err := parsePrefixes(asEntry.Nets)
 		if err != nil {
@@ -65,22 +67,42 @@ func (LegacySessionPolicyAdapter) Parse(raw []byte) (SessionPolicies, error) {
 		if asEntry.PathCount != 0 {
 			pathCount = asEntry.PathCount
 		}
-		multipathRedundancy := false
-		if asEntry.MultiPathRedundancy {
-			multipathRedundancy = asEntry.MultiPathRedundancy
+
+		mode := getPathMode(asEntry.Mode)
+
+		perfPolicy := DefaultPerfPolicy
+		p := &asEntry.PathPreference
+		if p.Bandwidth+p.DropRate+p.Jitter+p.Latency == 1.0 {
+			perfPolicy = &pathPerf{pathPerfWeights: asEntry.PathPreference}
+		} else {
+			p = &policies.PathPerfWeights{}
 		}
-		policies = append(policies, SessionPolicy{
-			ID:                  0,
-			IA:                  ia,
-			TrafficMatcher:      pktcls.CondTrue,
-			PerfPolicy:          DefaultPerfPolicy,
-			PathPolicy:          DefaultPathPolicy,
-			PathCount:           pathCount,
-			MultipathRedundancy: multipathRedundancy,
-			Prefixes:            prefixes,
+		sessionPolicies = append(sessionPolicies, SessionPolicy{
+			ID:             0,
+			IA:             ia,
+			TrafficMatcher: pktcls.CondTrue,
+			PerfPolicy:     perfPolicy,
+			PathPolicy:     DefaultPathPolicy,
+			PathCount:      pathCount,
+			Mode:           mode,
+			PathPreference: p,
+			Prefixes:       prefixes,
 		})
 	}
-	return policies, nil
+	return sessionPolicies, nil
+}
+
+func getPathMode(entry string) policies.PathMode {
+	mode := policies.Normal
+	switch entry {
+	case "MultiPath":
+		mode = policies.MultiPath
+	case "AdaptiveMultiPath":
+		mode = policies.AdaptiveMultiPath
+	default:
+		mode = policies.Normal
+	}
+	return mode
 }
 
 func parsePrefixes(rawNets []string) ([]*net.IPNet, error) {
@@ -175,7 +197,9 @@ type SessionPolicy struct {
 	PathCount int
 	// MultiPathRedundancy defines wether redundant communication on two paths
 	// is turned on
-	MultipathRedundancy bool
+	Mode policies.PathMode
+	// Path preference specifies the weights for the metrics for path selection
+	PathPreference *policies.PathPerfWeights
 	// Prefixes contains the network prefixes that are reachable through this
 	// session.
 	Prefixes []*net.IPNet
@@ -188,11 +212,11 @@ func (sp SessionPolicy) Copy() SessionPolicy {
 		IA:             sp.IA.IAInt().IA(),
 		TrafficMatcher: copyTrafficMatcher(sp.TrafficMatcher),
 		// TODO(lukedirtwalker): find a way to properly copy perf policies.
-		PerfPolicy:          sp.PerfPolicy,
-		PathPolicy:          copyPathPolicy(sp.PathPolicy),
-		PathCount:           sp.PathCount,
-		MultipathRedundancy: sp.MultipathRedundancy,
-		Prefixes:            copyPrefixes(sp.Prefixes),
+		PerfPolicy: sp.PerfPolicy,
+		PathPolicy: copyPathPolicy(sp.PathPolicy),
+		PathCount:  sp.PathCount,
+		Mode:       sp.Mode,
+		Prefixes:   copyPrefixes(sp.Prefixes),
 	}
 }
 
@@ -236,3 +260,71 @@ type fingerPrintOrder struct{}
 
 // func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Fingerprint < y.Fingerprint }
 func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Latency < y.Latency }
+
+type pathPerf struct {
+	pathPerfWeights policies.PathPerfWeights
+}
+
+func (p pathPerf) Better(x, y *policies.Stats) bool {
+	if isZero(x) || isZero(y) {
+		return x.Fingerprint < y.Fingerprint
+	}
+	xN, yN := normalizeMetrics(x, y)
+	scoreX := p.getWeightedScore(xN)
+	scoreY := p.getWeightedScore(yN)
+	return scoreX < scoreY
+}
+
+func (p pathPerf) getWeightedScore(n normalizedPathMetrics) float64 {
+	return (n.bandwidth*p.pathPerfWeights.Bandwidth +
+		n.latency*p.pathPerfWeights.Latency +
+		n.jitter*p.pathPerfWeights.Jitter +
+		n.dropRate*p.pathPerfWeights.DropRate)
+}
+func isZero(x *policies.Stats) bool {
+	if x.Bandwidth == 0 {
+		return true
+	}
+	if x.Latency == 0 {
+		return true
+	}
+	if x.Jitter == 0 {
+		return true
+	}
+	return false
+}
+
+type normalizedPathMetrics struct {
+	latency, bandwidth, jitter, dropRate float64
+}
+
+func normalizeMetrics(x, y *policies.Stats) (normalizedPathMetrics, normalizedPathMetrics) {
+	xN := normalizedPathMetrics{}
+	yN := normalizedPathMetrics{}
+
+	if x.Latency > y.Latency {
+		xN.latency = 1
+		yN.latency = float64(y.Latency.Nanoseconds()) / float64(x.Latency.Nanoseconds())
+	} else {
+		yN.latency = 1
+		xN.latency = float64(x.Latency.Nanoseconds()) / float64(y.Latency.Nanoseconds())
+	}
+	if x.Jitter > y.Jitter {
+		xN.jitter = 1
+		yN.jitter = float64(y.Jitter.Nanoseconds()) / float64(x.Jitter.Nanoseconds())
+	} else {
+		yN.jitter = 1
+		xN.jitter = float64(x.Jitter.Nanoseconds()) / float64(y.Jitter.Nanoseconds())
+	}
+	if x.Bandwidth > y.Bandwidth {
+		yN.bandwidth = 1
+		xN.bandwidth = float64(y.Bandwidth) / float64(x.Bandwidth)
+	} else {
+		xN.bandwidth = 1
+		yN.bandwidth = float64(x.Bandwidth) / float64(y.Bandwidth)
+	}
+	xN.dropRate = x.DropRate
+	yN.dropRate = y.DropRate
+
+	return xN, yN
+}

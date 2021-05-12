@@ -20,6 +20,14 @@ import (
 	"github.com/scionproto/scion/go/lib/snet"
 )
 
+type PathMode int
+
+const (
+	Normal PathMode = iota
+	MultiPath
+	AdaptiveMultiPath
+)
+
 type PathPolicy interface {
 	Filter(paths []snet.Path) []snet.Path
 }
@@ -28,6 +36,13 @@ type PerfPolicy interface {
 	// Better is a function that takes two paths and decides whether the first
 	// one is "better" according to the policy.
 	Better(x, y *Stats) bool
+}
+
+type PathPerfWeights struct {
+	Latency   float64
+	Bandwidth float64
+	Jitter    float64
+	DropRate  float64
 }
 
 // Stats contains all the metrics about a path.
@@ -42,7 +57,8 @@ type Stats struct {
 	Jitter time.Duration
 	// DropRate is a percentage of probes with no replies. From interval (0,1).
 	DropRate float64
-
+	// Bandwidth is the bandwidth of the path in bps
+	Bandwidth int64
 	// Is Alive is true if the probes are passing through at the moment.
 	IsAlive bool
 	// IsCurrent is true when the path is currently the active one.
@@ -60,4 +76,6 @@ type Policies struct {
 	PerfPolicy PerfPolicy
 	// PathCount is the max number of paths to return to the user. Defaults to 1.
 	PathCount int
+
+	Mode PathMode
 }

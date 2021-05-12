@@ -30,6 +30,12 @@ const (
 	rejectedInfo = "rejected by path policy"
 )
 
+const (
+	Normal = iota
+	MultiPath
+	AdaptiveMultiPath
+)
+
 // PathPolicy filters the set of paths.
 type PathPolicy interface {
 	Filter(paths []snet.Path) []snet.Path
@@ -51,6 +57,8 @@ type FilteringPathSelector struct {
 	RevocationStore
 	// PathCount is the max number of paths to return to the user. Defaults to 1.
 	PathCount int
+
+	Mode policies.PathMode
 }
 
 // Select selects the best paths.
