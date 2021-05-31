@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/scionproto/scion/go/lib/snet"
 	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
@@ -28,6 +29,15 @@ const (
 	deadInfo = "dead (probes are not passing through)"
 	// rejectedInfo is a string to log about paths rejected by path policies.
 	rejectedInfo = "rejected by path policy"
+
+	maxLatency   float64 = float64(250 * time.Millisecond)
+	maxJitter    float64 = float64(200 * time.Millisecond)
+	maxDropRate  float64 = 1
+	maxBandwidth float64 = 1000
+
+	duplicateThresholdLatency  float64 = 2
+	duplicateThresholdJitter   float64 = 2.25
+	duplicateThresholdDropRate float64 = 1.5
 )
 
 const (
@@ -61,14 +71,77 @@ type FilteringPathSelector struct {
 	Mode policies.PathMode
 }
 
+type Allowed struct {
+	Fingerprint snet.PathFingerprint
+	Path        snet.Path
+	Stats       policies.Stats
+	Selectable  Selectable
+}
+
+func setNormalizedMetrics(allowed []Allowed) {
+	length := len(allowed)
+	for i := 0; i < length; i++ {
+		allowed[i].Stats.NormalizedMetrics = policies.NormalizedMetrics{
+			Latency:   float64(allowed[i].Stats.Latencies.GetLastValue().Nanoseconds()) / maxLatency,
+			Jitter:    float64(allowed[i].Stats.Jitters.GetLastValue().Nanoseconds()) / maxJitter,
+			DropRate:  allowed[i].Stats.DropRates.GetLastValue() / maxDropRate,
+			Bandwidth: float64(allowed[i].Stats.Bandwidths.GetLastValue()) / maxBandwidth,
+		}
+	}
+}
+
+// func setNormalizedMetrics(allowed []Allowed) {
+// 	length := len(allowed)
+// 	latencies := make([]float64, length)
+// 	jitters := make([]float64, length)
+// 	dropRates := make([]float64, length)
+// 	bandwidths := make([]float64, length)
+// 	// scores := make([]float64, length)
+// 	for i := 0; i < length; i++ {
+// 		latencies[i] = float64(allowed[i].Stats.Latencies.GetLastValue().Nanoseconds())
+// 		jitters[i] = float64(allowed[i].Stats.Jitters.GetLastValue().Nanoseconds())
+// 		dropRates[i] = allowed[i].Stats.DropRates.GetLastValue()
+// 		bandwidths[i] = float64(allowed[i].Stats.Bandwidths.GetLastValue())
+// 	}
+// 	normalizeSlice(latencies, maxLatency)
+// 	normalizeSlice(jitters, maxJitter)
+// 	normalizeSlice(dropRates, maxDropRate)
+// 	normalizeSlice(bandwidths, maxBandwidth)
+// 	for i := 0; i < length; i++ {
+// 		allowed[i].Stats.NormalizedMetrics.Latency = latencies[i]
+// 		allowed[i].Stats.NormalizedMetrics.Jitter = jitters[i]
+// 		allowed[i].Stats.NormalizedMetrics.DropRate = dropRates[i]
+// 		allowed[i].Stats.NormalizedMetrics.Bandwidth = bandwidths[i]
+// 	}
+// }
+
+func normalizeSlice(slice []float64, max float64) {
+	if max == 0 {
+		max = getMax(slice)
+	}
+	if max == 0 {
+		for i := range slice {
+			slice[i] = 0
+		}
+	} else {
+		for i := range slice {
+			slice[i] = slice[i] / max
+		}
+	}
+}
+
+func getMax(slice []float64) float64 {
+	var max float64 = 0
+	for i := range slice {
+		if slice[i] > max {
+			max = slice[i]
+		}
+	}
+	return max
+}
+
 // Select selects the best paths.
 func (f *FilteringPathSelector) Select(selectables []Selectable, current FingerprintSet) Selection {
-	type Allowed struct {
-		Fingerprint snet.PathFingerprint
-		Path        snet.Path
-		Stats       policies.Stats
-		Selectable  Selectable
-	}
 
 	// Sort out the paths allowed by the path policy.
 	var allowed []Allowed
@@ -97,6 +170,8 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 			Fingerprint: fingerprint,
 		})
 	}
+	setNormalizedMetrics(allowed)
+
 	// Sort the allowed paths according the the perf policy.
 	sort.SliceStable(allowed, func(i, j int) bool {
 		// If some of the paths are alive (probes are passing through), yet still revoked
@@ -117,6 +192,12 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 		}
 		return allowed[i].Fingerprint > allowed[j].Fingerprint
 	})
+
+	// for _, v := range allowed {
+	// 	fmt.Println(v.Fingerprint, v.Stats.NormalizedMetrics.Score)
+	// }
+
+	// fmt.Println()
 
 	// Make the info string.
 	var format = "      %-44s %s"
@@ -140,11 +221,56 @@ func (f *FilteringPathSelector) Select(selectables []Selectable, current Fingerp
 	if pathCount == 0 {
 		pathCount = 1
 	}
+
+	var currentPaths []Allowed
+	for _, a := range allowed {
+		if a.Stats.IsCurrent {
+			currentPaths = append(currentPaths, a)
+		}
+	}
+
+	if f.Mode == AdaptiveMultiPath && len(currentPaths) > 0 {
+
+		meanLatency := currentPaths[0].Stats.Latencies.GetMeanValue()
+		meanDropRate := currentPaths[0].Stats.DropRates.GetMeanValue()
+		meanJitter := currentPaths[0].Stats.Jitters.GetMeanValue()
+		currentLatency := currentPaths[0].Stats.Latencies.GetLastValue()
+		currentDropRate := currentPaths[0].Stats.DropRates.GetLastValue()
+		currentJitter := currentPaths[0].Stats.Jitters.GetLastValue()
+
+		duplicate := false
+
+		if currentLatency > time.Duration(float64(meanLatency)*duplicateThresholdLatency) {
+			duplicate = true
+		}
+		if currentDropRate > meanDropRate*duplicateThresholdDropRate {
+			duplicate = true
+		}
+		if currentJitter > time.Duration(float64(meanJitter)*duplicateThresholdJitter) {
+			duplicate = true
+		}
+
+		if duplicate {
+			pathCount = 2
+		} else {
+			pathCount = 1
+		}
+
+	}
+
 	if pathCount > len(allowed) {
 		pathCount = len(allowed)
 	}
 
 	paths := make([]snet.Path, 0, pathCount)
+
+	// if pathCount == 1 && !allowed[0].Stats.IsCurrent && len(currentPaths) > 0 {
+	// 	if currentPaths[0].Stats.NormalizedMetrics.Score <=
+	// 		allowed[0].Stats.NormalizedMetrics.Score*1.2 {
+	// 		paths = append(paths, currentPaths[0].Path)
+	// 	}
+	// }
+
 	for i := 0; i < pathCount; i++ {
 		paths = append(paths, allowed[i].Path)
 	}

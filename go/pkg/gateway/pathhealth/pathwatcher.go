@@ -27,6 +27,10 @@ import (
 	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
 )
 
+const (
+	pathStatHistoryLen int = 10
+)
+
 // DefaultPathWatcherFactory creates PathWatchers.
 type DefaultPathWatcherFactory struct {
 	// Logger is the parent logger. If nil, the PathWatcher is constructed
@@ -49,9 +53,7 @@ func (f *DefaultPathWatcherFactory) New(remote addr.IA, path snet.Path, id uint1
 		path:   path.Copy(),
 		logger: logger,
 		pathState: pathState{
-			stats: policies.Stats{
-				Fingerprint: snet.Fingerprint(path),
-			},
+			stats:      policies.NewStats(snet.Fingerprint(path)),
 			probeStats: probeStats,
 		},
 	}
@@ -193,22 +195,15 @@ func (s *pathState) sendProbe(now time.Time, seq uint16) {
 	defer s.mu.Unlock()
 	s.lastSent = now
 	s.lastSeq = seq
-	for k, probeStat := range s.probeStats {
-		if s.lastSeq >= 65534 {
-			delete(s.probeStats, k)
-			continue
-		}
-		if s.lastSeq > 20 && k < s.lastSeq-20 {
-			delete(s.probeStats, k)
-			continue
-		}
+
+	for _, probeStat := range s.probeStats {
 		if probeStat.received.IsZero() {
 			if probeStat.sent.Add(defaultProbeInterval * 2).Before(now) {
 				probeStat.dropped = true
 			}
 		}
 	}
-	s.probeStats[seq] = &probeStat{sent: now, received: time.Time{}}
+	s.probeStats[seq] = &probeStat{sent: now, received: time.Time{}, dropped: false}
 	// Probe timed out.
 	if s.lastReceived.Add(defaultProbeInterval * 2).Before(now) {
 		s.consecutiveProbes = 0
@@ -224,7 +219,7 @@ func (s *pathState) receiveProbe(now time.Time, seq uint16) {
 	probeStat.received = now
 	probeStat.latency = now.Sub(probeStat.sent)
 	if s.lastSeq == seq {
-		s.stats.Latency = now.Sub(s.lastSent)
+		s.stats.Latencies.AddValue(now.Sub(s.lastSent))
 	}
 	if s.consecutiveProbes < 3 {
 		s.consecutiveProbes++
@@ -235,31 +230,36 @@ func (s *pathState) getStats() policies.Stats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var dropped float64 = 0
-	var totalLatency int64 = 0
+	var latency int64 = 0
 	var latencyDiff int64 = 0
 	var lastLatency int64 = 0
 	var num int64 = 0
-	for _, probeStat := range s.probeStats {
-
-		if probeStat.dropped {
-			dropped++
-		} else if !probeStat.received.IsZero() {
-			latency := probeStat.latency.Nanoseconds()
-			totalLatency += latency
-			if lastLatency != 0 {
-				latencyDiff += getAbsValue(latency - lastLatency)
+	var indexStart uint16 = 0
+	if s.lastSeq > uint16(pathStatHistoryLen) {
+		indexStart = s.lastSeq - uint16(pathStatHistoryLen)
+	}
+	for i := indexStart; i <= s.lastSeq; i++ {
+		stat := s.probeStats[i]
+		if stat != (*probeStat)(nil) {
+			if stat.dropped {
+				dropped++
+			} else if !stat.received.IsZero() {
+				latency = stat.latency.Nanoseconds()
+				if lastLatency != 0 {
+					latencyDiff += getAbsValue(latency - lastLatency)
+				}
+				lastLatency = latency
+				num++
 			}
-			lastLatency = latency
-			num++
 		}
 	}
-	if num > 2 {
-		s.stats.DropRate = dropped / float64(len(s.probeStats))
-		s.stats.Latency = time.Duration(totalLatency / num)
-		s.stats.Jitter = time.Duration(latencyDiff / (num - 1))
+	if num > 1 {
+		s.stats.DropRates.AddValue(dropped / float64(s.lastSeq-indexStart))
+		s.stats.Latencies.AddValue(time.Duration(latency))
+		s.stats.Jitters.AddValue(time.Duration(latencyDiff / (num - 1)))
 	}
 	//dummy bandwidth
-	s.stats.Bandwidth = 100
+	s.stats.Bandwidths.AddValue(100)
 	s.stats.IsAlive = s.consecutiveProbes == 3
 	return s.stats
 }

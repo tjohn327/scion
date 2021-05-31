@@ -15,8 +15,6 @@
 package policies
 
 import (
-	"time"
-
 	"github.com/scionproto/scion/go/lib/snet"
 )
 
@@ -51,20 +49,56 @@ type Stats struct {
 	// and thus prevent random path switching even if all the other path metrics are the same.
 	Fingerprint snet.PathFingerprint
 
-	// Latency is median one-way latency of the path.
-	Latency time.Duration
-	// Jitter is the average of the difference between consecutive latencies.
-	Jitter time.Duration
-	// DropRate is a percentage of probes with no replies. From interval (0,1).
-	DropRate float64
-	// Bandwidth is the bandwidth of the path in bps
-	Bandwidth int64
+	// Metrics keeps track of the last n path metrics measures
+	Metrics
+
 	// Is Alive is true if the probes are passing through at the moment.
 	IsAlive bool
 	// IsCurrent is true when the path is currently the active one.
 	IsCurrent bool
 	// IsRevoked is true if a revocation was issued for one or more interfaces on the path.
 	IsRevoked bool
+
+	NormalizedMetrics NormalizedMetrics
+}
+
+type NormalizedMetrics struct {
+	Latency   float64
+	Jitter    float64
+	DropRate  float64
+	Bandwidth float64
+	Score     float64
+}
+
+// NewStats construct a new Stats struct and poplulates it initially as needed.
+func NewStats(fp snet.PathFingerprint) Stats {
+
+	historyLen := 100
+
+	return Stats{
+		Fingerprint: fp,
+		Metrics: Metrics{
+			Latencies:  NewDurationBuffer(historyLen),
+			Jitters:    NewDurationBuffer(historyLen),
+			DropRates:  NewFloat64Buffer(historyLen),
+			Bandwidths: NewInt64Buffer(historyLen),
+		},
+		IsAlive:   false,
+		IsCurrent: false,
+		IsRevoked: false,
+	}
+}
+
+// keeps a history of the last few measurements for each metric
+type Metrics struct {
+	// Latency is median one-way latency of the path.
+	Latencies *DurationBuffer
+	// Jitter is the average of the difference between consecutive latencies.
+	Jitters *DurationBuffer
+	// DropRate is a percentage of probes with no replies. From interval (0,1).
+	DropRates *Float64Buffer
+	// Bandwidth is the bandwidth of the path in bps
+	Bandwidths *Int64Buffer
 }
 
 // Policies is a container for different kinds of policies.

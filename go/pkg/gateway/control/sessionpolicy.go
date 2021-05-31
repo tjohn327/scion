@@ -259,72 +259,78 @@ func copyPrefixes(prefixes []*net.IPNet) []*net.IPNet {
 type fingerPrintOrder struct{}
 
 // func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Fingerprint < y.Fingerprint }
-func (fingerPrintOrder) Better(x, y *policies.Stats) bool { return x.Latency < y.Latency }
+func (fingerPrintOrder) Better(x, y *policies.Stats) bool {
+	return x.Latencies.GetLastValue() < y.Latencies.GetLastValue()
+}
 
 type pathPerf struct {
 	pathPerfWeights policies.PathPerfWeights
 }
 
 func (p pathPerf) Better(x, y *policies.Stats) bool {
-	if isZero(x) || isZero(y) {
-		return x.Fingerprint < y.Fingerprint
-	}
-	xN, yN := normalizeMetrics(x, y)
-	scoreX := p.getWeightedScore(xN)
-	scoreY := p.getWeightedScore(yN)
-	return scoreX < scoreY
+	// if isZero(x) || isZero(y) {
+	// 	return x.Fingerprint < y.Fingerprint
+	// }
+	// xN, yN := normalizeMetrics(x, y)
+	// scoreX := p.getWeightedScore(xN)
+	// scoreY := p.getWeightedScore(yN)
+	// return scoreX < scoreY
+	p.setWeightedScore(&x.NormalizedMetrics)
+	p.setWeightedScore(&y.NormalizedMetrics)
+	return x.NormalizedMetrics.Score < y.NormalizedMetrics.Score
 }
 
-func (p pathPerf) getWeightedScore(n normalizedPathMetrics) float64 {
-	return (n.bandwidth*p.pathPerfWeights.Bandwidth +
-		n.latency*p.pathPerfWeights.Latency +
-		n.jitter*p.pathPerfWeights.Jitter +
-		n.dropRate*p.pathPerfWeights.DropRate)
-}
-func isZero(x *policies.Stats) bool {
-	if x.Bandwidth == 0 {
-		return true
-	}
-	if x.Latency == 0 {
-		return true
-	}
-	if x.Jitter == 0 {
-		return true
-	}
-	return false
+func (p pathPerf) setWeightedScore(n *policies.NormalizedMetrics) {
+	n.Score = (n.Bandwidth*p.pathPerfWeights.Bandwidth +
+		n.Latency*p.pathPerfWeights.Latency +
+		n.Jitter*p.pathPerfWeights.Jitter +
+		n.DropRate*p.pathPerfWeights.DropRate)
 }
 
-type normalizedPathMetrics struct {
-	latency, bandwidth, jitter, dropRate float64
-}
+// func isZero(x *policies.Stats) bool {
+// 	if x.Bandwidth == 0 {
+// 		return true
+// 	}
+// 	if x.Latency == 0 {
+// 		return true
+// 	}
+// 	if x.Jitter == 0 {
+// 		return true
+// 	}
+// 	return false
+// }
 
-func normalizeMetrics(x, y *policies.Stats) (normalizedPathMetrics, normalizedPathMetrics) {
-	xN := normalizedPathMetrics{}
-	yN := normalizedPathMetrics{}
+// type NormalizedPathMetrics struct {
+// 	latency, bandwidth, jitter, dropRate float64
+// }
 
-	if x.Latency > y.Latency {
-		xN.latency = 1
-		yN.latency = float64(y.Latency.Nanoseconds()) / float64(x.Latency.Nanoseconds())
-	} else {
-		yN.latency = 1
-		xN.latency = float64(x.Latency.Nanoseconds()) / float64(y.Latency.Nanoseconds())
-	}
-	if x.Jitter > y.Jitter {
-		xN.jitter = 1
-		yN.jitter = float64(y.Jitter.Nanoseconds()) / float64(x.Jitter.Nanoseconds())
-	} else {
-		yN.jitter = 1
-		xN.jitter = float64(x.Jitter.Nanoseconds()) / float64(y.Jitter.Nanoseconds())
-	}
-	if x.Bandwidth > y.Bandwidth {
-		yN.bandwidth = 1
-		xN.bandwidth = float64(y.Bandwidth) / float64(x.Bandwidth)
-	} else {
-		xN.bandwidth = 1
-		yN.bandwidth = float64(x.Bandwidth) / float64(y.Bandwidth)
-	}
-	xN.dropRate = x.DropRate
-	yN.dropRate = y.DropRate
+// func normalizeMetrics(x, y *policies.Stats) (normalizedPathMetrics, normalizedPathMetrics) {
+// 	xN := normalizedPathMetrics{}
+// 	yN := normalizedPathMetrics{}
 
-	return xN, yN
-}
+// 	if x.Latency > y.Latency {
+// 		xN.latency = 1
+// 		yN.latency = float64(y.Latency.Nanoseconds()) / float64(x.Latency.Nanoseconds())
+// 	} else {
+// 		yN.latency = 1
+// 		xN.latency = float64(x.Latency.Nanoseconds()) / float64(y.Latency.Nanoseconds())
+// 	}
+// 	if x.Jitter > y.Jitter {
+// 		xN.jitter = 1
+// 		yN.jitter = float64(y.Jitter.Nanoseconds()) / float64(x.Jitter.Nanoseconds())
+// 	} else {
+// 		yN.jitter = 1
+// 		xN.jitter = float64(x.Jitter.Nanoseconds()) / float64(y.Jitter.Nanoseconds())
+// 	}
+// 	if x.Bandwidth > y.Bandwidth {
+// 		yN.bandwidth = 1
+// 		xN.bandwidth = float64(y.Bandwidth) / float64(x.Bandwidth)
+// 	} else {
+// 		xN.bandwidth = 1
+// 		yN.bandwidth = float64(x.Bandwidth) / float64(y.Bandwidth)
+// 	}
+// 	xN.dropRate = x.DropRate
+// 	yN.dropRate = y.DropRate
+
+// 	return xN, yN
+// }

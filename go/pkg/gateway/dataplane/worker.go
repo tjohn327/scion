@@ -35,6 +35,8 @@ const (
 	reassemblyListCap = 100
 	// rlistCleanUpInterval is the interval between clean up of outdated reassembly lists.
 	rlistCleanUpInterval = 1 * time.Second
+	// packetMemDuration is the duration for which a packet is kept for filtering duplicates
+	packetMemDuration = 150 * time.Millisecond
 )
 
 type ingressSender interface {
@@ -51,20 +53,21 @@ type worker struct {
 	rlists           map[int]*reassemblyList
 	markedForCleanup bool
 	tunIO            io.Writer
-	packetMemIPV4    []uint16
+	packetMemIPV4    map[uint16]time.Time
 }
 
 func newWorker(remote *snet.UDPAddr, sessID uint8,
 	tunIO io.Writer, metrics IngressMetrics) *worker {
 
 	worker := &worker{
-		Logger:  log.New("ingress", remote.String(), "sessId", sessID),
-		Remote:  remote,
-		SessID:  sessID,
-		Ring:    ringbuf.New(64, nil, fmt.Sprintf("ingress_%s_%d", remote.IA, sessID)),
-		rlists:  make(map[int]*reassemblyList),
-		tunIO:   tunIO,
-		Metrics: metrics,
+		Logger:        log.New("ingress", remote.String(), "sessId", sessID),
+		Remote:        remote,
+		SessID:        sessID,
+		Ring:          ringbuf.New(64, nil, fmt.Sprintf("ingress_%s_%d", remote.IA, sessID)),
+		rlists:        make(map[int]*reassemblyList),
+		tunIO:         tunIO,
+		Metrics:       metrics,
+		packetMemIPV4: make(map[uint16]time.Time),
 	}
 
 	return worker
@@ -78,7 +81,6 @@ func (w *worker) Run() {
 	w.Info("IngressWorker starting", "remote", w.Remote.String(), "session_id", w.SessID)
 	frames := make(ringbuf.EntryList, 64)
 	lastCleanup := time.Now()
-	w.packetMemIPV4 = make([]uint16, 1024)
 	for {
 		// This might block indefinitely, thus cleanup will be deferred. However,
 		// this is not an issue, since if there is nothing to read we also don't need
@@ -154,13 +156,16 @@ func (w *worker) cleanup() {
 
 func (w *worker) send(packet common.RawBytes) error {
 	checkSum := extractCheckSum(packet)
-	if contains(checkSum, w.packetMemIPV4) {
-		return nil //duplicate packet
+	if checkSum > 0 { //check if IPv4
+		now := time.Now()
+		if val, ok := w.packetMemIPV4[checkSum]; ok {
+			if now.Sub(val) < packetMemDuration {
+				return nil //duplicate packet
+			}
+		}
+		w.packetMemIPV4[checkSum] = now
 	}
-	if len(w.packetMemIPV4) >= 1024 {
-		w.packetMemIPV4 = w.packetMemIPV4[1:] // dequeue
-	}
-	w.packetMemIPV4 = append(w.packetMemIPV4, checkSum)
+
 	bytesWritten, err := w.tunIO.Write(packet)
 	if err != nil {
 		increaseCounterMetric(w.Metrics.SendLocalError, 1)
