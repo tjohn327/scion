@@ -45,7 +45,6 @@ import (
 	"github.com/scionproto/scion/go/pkg/gateway/config"
 	"github.com/scionproto/scion/go/pkg/gateway/control"
 	controlgrpc "github.com/scionproto/scion/go/pkg/gateway/control/grpc"
-	"github.com/scionproto/scion/go/pkg/gateway/crypto"
 	"github.com/scionproto/scion/go/pkg/gateway/dataplane"
 	"github.com/scionproto/scion/go/pkg/gateway/pathhealth"
 	"github.com/scionproto/scion/go/pkg/gateway/pathhealth/policies"
@@ -309,9 +308,9 @@ func (g *Gateway) Run() error {
 	}()
 	log.SafeInfo(g.Logger, "Path monitor started.")
 
-	//DRKey
-	drkey := &crypto.DRKey{Daemon: g.Daemon}
-	fmt.Print(drkey)
+	// //DRKey
+	// drkey := &crypto.DRKey{Daemon: g.Daemon}
+	// fmt.Print(drkey)
 
 	// *************************************************************************
 	// Set up the configuration pipelines for session construction.
