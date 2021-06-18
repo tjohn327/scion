@@ -17,16 +17,14 @@ package config
 import (
 	"bytes"
 	"testing"
-	"time"
 
 	"github.com/pelletier/go-toml"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/scionproto/scion/go/lib/ctrl/path_mgmt"
 	"github.com/scionproto/scion/go/lib/env/envtest"
 	"github.com/scionproto/scion/go/lib/log/logtest"
-	"github.com/scionproto/scion/go/lib/util"
 	"github.com/scionproto/scion/go/pkg/api/apitest"
+	"github.com/scionproto/scion/go/pkg/api/jwtauth"
 	storagetest "github.com/scionproto/scion/go/pkg/storage/test"
 )
 
@@ -41,25 +39,12 @@ func TestConfigSample(t *testing.T) {
 	CheckTestConfig(t, &cfg, idSample)
 }
 
-func TestInvalidTTL(t *testing.T) {
-	cfg := BSConfig{}
-	cfg.InitDefaults()
-	err := cfg.Validate()
-	assert.NoError(t, err)
-	cfg.RevOverlap = util.DurWrap{Duration: cfg.RevTTL.Duration + time.Second}
-	err = cfg.Validate()
-	assert.Error(t, err)
-	cfg.InitDefaults()
-	cfg.RevTTL = util.DurWrap{Duration: path_mgmt.MinRevTTL - time.Second}
-	err = cfg.Validate()
-	assert.Error(t, err)
-}
-
 func InitTestConfig(cfg *Config) {
 	apitest.InitConfig(&cfg.API)
 	envtest.InitTest(&cfg.General, &cfg.Metrics, &cfg.Tracing, nil)
 	logtest.InitTestLogging(&cfg.Logging)
 	InitTestBSConfig(&cfg.BS)
+	InitTestPSConfig(&cfg.PS)
 	InitTestCA(&cfg.CA)
 }
 
@@ -84,18 +69,13 @@ func CheckTestConfig(t *testing.T, cfg *Config, id string) {
 	storagetest.CheckTestRenewalDBConfig(t, &cfg.RenewalDB, id)
 	CheckTestBSConfig(t, &cfg.BS)
 	CheckTestPSConfig(t, &cfg.PS, id)
-	CheckTestCA(t, &cfg.CA, id)
+	CheckTestCA(t, &cfg.CA)
 }
 
 func CheckTestBSConfig(t *testing.T, cfg *BSConfig) {
-	assert.Equal(t, DefaultKeepaliveTimeout, cfg.KeepaliveTimeout.Duration)
-	assert.Equal(t, DefaultKeepaliveInterval, cfg.KeepaliveInterval.Duration)
 	assert.Equal(t, DefaultOriginationInterval, cfg.OriginationInterval.Duration)
 	assert.Equal(t, DefaultPropagationInterval, cfg.PropagationInterval.Duration)
 	assert.Equal(t, DefaultRegistrationInterval, cfg.RegistrationInterval.Duration)
-	assert.Equal(t, DefaultExpiredCheckInterval, cfg.ExpiredCheckInterval.Duration)
-	assert.Equal(t, DefaultRevTTL, cfg.RevTTL.Duration)
-	assert.Equal(t, DefaultRevOverlap, cfg.RevOverlap.Duration)
 	CheckTestPolicies(t, &cfg.Policies)
 }
 
@@ -115,8 +95,18 @@ func CheckTestPSConfig(t *testing.T, cfg *PSConfig, id string) {
 	assert.Empty(t, cfg.HiddenPathsCfg)
 }
 
-func InitTestCA(cfg *CA) {}
+func InitTestCA(cfg *CA) {
+}
 
-func CheckTestCA(t *testing.T, cfg *CA, id string) {
+func CheckTestCA(t *testing.T, cfg *CA) {
 	assert.Equal(t, DefaultMaxASValidity, cfg.MaxASValidity.Duration)
+	assert.Equal(t, cfg.Mode, InProcess)
+	CheckTestService(t, &cfg.Service)
+}
+
+func CheckTestService(t *testing.T, cfg *CAService) {
+	assert.Empty(t, cfg.SharedSecret)
+	assert.Empty(t, cfg.Address)
+	assert.Equal(t, jwtauth.DefaultTokenLifetime, cfg.Lifetime.Duration)
+	assert.Empty(t, cfg.ClientID)
 }

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/resolver"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/scionproto/scion/go/lib/metrics"
 	"github.com/scionproto/scion/go/lib/pathdb"
 	"github.com/scionproto/scion/go/lib/periodic"
+	"github.com/scionproto/scion/go/lib/prom"
 	"github.com/scionproto/scion/go/lib/revcache"
 	"github.com/scionproto/scion/go/lib/scrypto/signed"
 	"github.com/scionproto/scion/go/lib/serrors"
@@ -54,6 +56,7 @@ import (
 	"github.com/scionproto/scion/go/pkg/sciond/fetcher"
 	"github.com/scionproto/scion/go/pkg/service"
 	"github.com/scionproto/scion/go/pkg/storage"
+	truststoragemetrics "github.com/scionproto/scion/go/pkg/storage/trust/metrics"
 	"github.com/scionproto/scion/go/pkg/trust"
 	"github.com/scionproto/scion/go/pkg/trust/compat"
 	trustmetrics "github.com/scionproto/scion/go/pkg/trust/metrics"
@@ -69,10 +72,6 @@ func main() {
 	}
 	application.Run()
 }
-
-const (
-	shutdownWaitTimeout = 5 * time.Second
-)
 
 func realMain() error {
 	if err := setup(); err != nil {
@@ -118,8 +117,17 @@ func realMain() error {
 	if err != nil {
 		return serrors.WrapStr("initializing trust database", err)
 	}
-	trustDB = trustmetrics.WrapDB(string(storage.BackendSqlite), trustDB)
 	defer trustDB.Close()
+	trustDB = truststoragemetrics.WrapDB(trustDB, truststoragemetrics.Config{
+		Driver: string(storage.BackendSqlite),
+		QueriesTotal: metrics.NewPromCounterFrom(
+			prometheus.CounterOpts{
+				Name: "trustengine_db_queries_total",
+				Help: "Total queries to the database",
+			},
+			[]string{"driver", "operation", prom.LabelResult},
+		),
+	})
 	engine, err := sciond.TrustEngine(globalCfg.General.ConfigDir, trustDB, dialer)
 	if err != nil {
 		return serrors.WrapStr("creating trust engine", err)
@@ -198,7 +206,6 @@ func realMain() error {
 			},
 		),
 		Engine:       engine,
-		PathDB:       pathDB,
 		RevCache:     revCache,
 		TopoProvider: itopo.Provider(),
 		DRKeyStore:   drkeyStore,

@@ -81,8 +81,6 @@ func (m *TLSCryptoManager) VerifyPeerCertificate(rawCerts [][]byte,
 	ia, err := cppki.ExtractIA(chain[0].Subject)
 	if err != nil {
 		return serrors.WrapStr("extracting ISD-AS from peer certificate", err)
-	} else if ia == nil {
-		return serrors.New("ISD-AS no present in peer certificate")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), m.Timeout)
 	defer cancel()
@@ -99,7 +97,8 @@ func (m *TLSCryptoManager) VerifyPeerCertificate(rawCerts [][]byte,
 func verifyChain(chain []*x509.Certificate, trcs []cppki.SignedTRC) error {
 	var errs serrors.List
 	for _, trc := range trcs {
-		if err := cppki.VerifyChain(chain, cppki.VerifyOptions{TRC: &trc.TRC}); err != nil {
+		verifyOptions := cppki.VerifyOptions{TRC: []*cppki.TRC{&trc.TRC}}
+		if err := cppki.VerifyChain(chain, verifyOptions); err != nil {
 			errs = append(errs, err)
 			continue
 		}

@@ -15,13 +15,16 @@
 package routemgr
 
 import (
+	"bytes"
 	"fmt"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/scionproto/scion/go/lib/log"
 	"github.com/scionproto/scion/go/lib/metrics"
+	"github.com/scionproto/scion/go/pkg/gateway/control"
 )
 
 const (
@@ -29,49 +32,8 @@ const (
 	defaultCleanupInterval = time.Second
 )
 
-type Route struct {
-	// Prefix is the IP address prefix of the route.
-	Prefix *net.IPNet
-	// NextHop is the next hop to send the packets to.
-	NextHop net.IP
-}
-
-// RouteUpdate is used to inform consumers about changes in the route database.
-type RouteUpdate struct {
-	Route
-	// IsAdd is true if the route is added. It is false when the route is removed.
-	IsAdd bool
-}
-
-// Publisher is the interface for announcing prefixes to other routing backends.
-type Publisher interface {
-	// AddRoute will export route to another routing backend. Duplicates are a no-op.
-	AddRoute(route Route)
-	// DeleteRoute will delete a route from another routing backend. If the route
-	// doesn't exist, the deletion is a silent no-op. Only a network that is an exact
-	// match (network address, subnet mask, next hop) is removed.
-	DeleteRoute(route Route)
-	// Close retracts all the routes published via this publisher.
-	Close()
-}
-
-type PublisherFactory interface {
-	NewPublisher() Publisher
-}
-
-type Consumer interface {
-	// Updates returns a channel that can be used to receive route updates.
-	Updates() <-chan RouteUpdate
-	// Stops receiving updates.
-	Close()
-}
-
-type ConsumerFactory interface {
-	NewConsumer() Consumer
-}
-
 type routeEntry struct {
-	Route
+	control.Route
 	refCount  int
 	deletedAt time.Time
 }
@@ -152,7 +114,7 @@ func (db *RouteDB) Close() {
 
 // NewPublisher creates a new publisher that can be used to insert routes to the
 // database. Calling the function after Close results in undefined behavior.
-func (db *RouteDB) NewPublisher() Publisher {
+func (db *RouteDB) NewPublisher() control.Publisher {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 	db.initLocked()
@@ -165,7 +127,7 @@ func (db *RouteDB) NewPublisher() Publisher {
 
 // NewConsumer creates a new consumer that can be used to get route updates from
 // the database. Calling the function after Close results in undefined behavior.
-func (db *RouteDB) NewConsumer() Consumer {
+func (db *RouteDB) NewConsumer() control.Consumer {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 	db.initLocked()
@@ -176,16 +138,17 @@ func (db *RouteDB) NewConsumer() Consumer {
 	if channelSize < updateChannelSize {
 		channelSize = updateChannelSize
 	}
-	c := &RouteConsumer{db: db, updateChan: make(chan RouteUpdate, channelSize)}
+	c := &RouteConsumer{db: db, updateChan: make(chan control.RouteUpdate, channelSize)}
 	db.consumers[c] = struct{}{}
 
 	// Push all the currently existing routes into the update channel.
 	for _, entry := range db.routes {
-		db.publishToUpdateChan(c.updateChan, RouteUpdate{
+		db.publishToUpdateChan(c.updateChan, control.RouteUpdate{
 			IsAdd: true,
-			Route: Route{
+			Route: control.Route{
 				Prefix:  entry.Prefix,
 				NextHop: entry.NextHop,
+				Source:  entry.Source,
 			},
 		})
 	}
@@ -193,7 +156,7 @@ func (db *RouteDB) NewConsumer() Consumer {
 	return c
 }
 
-func (db *RouteDB) addRoute(route Route) {
+func (db *RouteDB) addRoute(route control.Route) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
@@ -208,14 +171,14 @@ func (db *RouteDB) addRoute(route Route) {
 		refCount: 1,
 	}
 	for consumer := range db.consumers {
-		db.publishToUpdateChan(consumer.updateChan, RouteUpdate{
+		db.publishToUpdateChan(consumer.updateChan, control.RouteUpdate{
 			IsAdd: true,
 			Route: route,
 		})
 	}
 }
 
-func (db *RouteDB) deleteRoute(route Route) {
+func (db *RouteDB) deleteRoute(route control.Route) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
@@ -230,7 +193,7 @@ func (db *RouteDB) deleteRoute(route Route) {
 	}
 }
 
-func (db *RouteDB) publishToUpdateChan(ch chan RouteUpdate, ru RouteUpdate) {
+func (db *RouteDB) publishToUpdateChan(ch chan control.RouteUpdate, ru control.RouteUpdate) {
 	after := time.After(time.Minute)
 	for {
 		select {
@@ -250,11 +213,12 @@ func (db *RouteDB) cleanUp() {
 	for key, entry := range db.routes {
 		if entry.refCount == 0 && time.Now().Sub(entry.deletedAt) > db.RouteExpiration {
 			for consumer := range db.consumers {
-				db.publishToUpdateChan(consumer.updateChan, RouteUpdate{
+				db.publishToUpdateChan(consumer.updateChan, control.RouteUpdate{
 					IsAdd: false,
-					Route: Route{
+					Route: control.Route{
 						Prefix:  entry.Prefix,
 						NextHop: entry.NextHop,
+						Source:  entry.Source,
 					},
 				})
 			}
@@ -270,8 +234,62 @@ func (db *RouteDB) closeConsumer(c *RouteConsumer) {
 	delete(db.consumers, c)
 }
 
+// Diagnostics takes a diagnostic snapshot of the RouteDB.
+func (db *RouteDB) Diagnostics() control.Diagnostics {
+	routes := db.snapshot()
+	if len(routes) == 0 {
+		return control.Diagnostics{}
+	}
+	sortRoutes(routes)
+	return control.Diagnostics{Routes: routes}
+}
+
+func (db *RouteDB) snapshot() []control.Route {
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+	routes := make([]control.Route, 0, len(db.routes))
+	for _, route := range db.routes {
+		routes = append(routes, route.Route)
+	}
+	return routes
+}
+
+func sortRoutes(routes []control.Route) {
+	sort.Slice(routes, func(i, j int) bool {
+		a := routes[i].Prefix.IP.Mask(routes[i].Prefix.Mask)
+		b := routes[j].Prefix.IP.Mask(routes[j].Prefix.Mask)
+		a, b = canonicalIP(a), canonicalIP(b)
+
+		// Sort according to IP family.
+		if aLen, bLen := len(a), len(b); aLen != bLen {
+			return aLen < bLen
+		}
+		if c := bytes.Compare(a, b); c != 0 {
+			return c == -1
+		}
+		aOnes, _ := routes[i].Prefix.Mask.Size()
+		bOnes, _ := routes[j].Prefix.Mask.Size()
+		if aOnes != bOnes {
+			return aOnes < bOnes
+		}
+		aHop := canonicalIP(routes[i].NextHop)
+		bHop := canonicalIP(routes[j].NextHop)
+		if c := bytes.Compare(aHop, bHop); c != 0 {
+			return c == -1
+		}
+		return false
+	})
+}
+
+func canonicalIP(ip net.IP) net.IP {
+	if v4 := ip.To4(); v4 != nil {
+		return v4
+	}
+	return ip
+}
+
 type publisherRouteEntry struct {
-	Route
+	control.Route
 	refCount int
 }
 
@@ -283,7 +301,7 @@ type RoutePublisher struct {
 // AddRoute adds a route to the database. Inserting the same route multiple
 // times is OK. The routes are reference counted. Calling the function
 // after Close results in undefined behavior.
-func (p *RoutePublisher) AddRoute(route Route) {
+func (p *RoutePublisher) AddRoute(route control.Route) {
 	key := makeKey(route.Prefix, route.NextHop)
 	entry, ok := p.routes[key]
 	if ok {
@@ -300,7 +318,7 @@ func (p *RoutePublisher) AddRoute(route Route) {
 // DeleteRoute removes a route from the database. If the route in question
 // hasn't been added via this publisher the function will panic. Calling the function
 // after Close results in undefined behavior.
-func (p *RoutePublisher) DeleteRoute(route Route) {
+func (p *RoutePublisher) DeleteRoute(route control.Route) {
 	key := makeKey(route.Prefix, route.NextHop)
 	entry, ok := p.routes[key]
 	if !ok || entry.refCount == 0 {
@@ -324,12 +342,12 @@ func (p *RoutePublisher) Close() {
 
 type RouteConsumer struct {
 	db         *RouteDB
-	updateChan chan RouteUpdate
+	updateChan chan control.RouteUpdate
 }
 
 // Updates returns a channel for route updates. When the database is closed this
 // channel will be closed as well.
-func (c *RouteConsumer) Updates() <-chan RouteUpdate {
+func (c *RouteConsumer) Updates() <-chan control.RouteUpdate {
 	return c.updateChan
 }
 

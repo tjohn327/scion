@@ -25,6 +25,9 @@ import (
 type State struct {
 	// IsAlive indicates that the path is currently alive.
 	IsAlive bool
+	// IsExpired indicates that the path is expired. IsExpired == true implies IsAlive == false but
+	// not vice versa.
+	IsExpired bool
 }
 
 // Selectable is a subset of the PathWatcher that is used for path selection.

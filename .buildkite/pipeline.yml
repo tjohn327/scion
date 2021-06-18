@@ -14,8 +14,8 @@ steps:
   - label: "UT: unit tests & lint :bazel::bash:"
     if: build.message !~ /\[doc\]/
     command:
-      - ./scion.sh test
-      - ./scion.sh lint
+      - bazel test --config=unit --cache_test_results=${BAZEL_CACHE_TEST_RESULTS:-auto}
+      - make lint
     key: unit_tests
     artifact_paths:
       - "artifacts.out/**/*"
@@ -31,7 +31,7 @@ steps:
       - mkdir -p /tmp/test-artifacts
       - cp go.mod go.sum go_deps.bzl /tmp/test-artifacts/
       - make go_deps.bzl -B
-      - bazel-${BUILDKITE_PIPELINE_SLUG}/external/go_sdk/bin/go mod tidy
+      - $(bazel info output_base 2>/dev/null)/external/go_sdk/bin/go mod tidy
       - diff -u /tmp/test-artifacts/go.mod go.mod
       - diff -u /tmp/test-artifacts/go.sum go.sum
       - diff -u /tmp/test-artifacts/go_deps.bzl go_deps.bzl
@@ -43,7 +43,7 @@ steps:
       - make protobuf
       - diff -ur /tmp/test-artifacts/proto/ go/pkg/proto/
       - mkdir -p /tmp/test-artifacts/licenses
-      - ./tools/licenses.sh /tmp/test-artifacts/licenses $BUILDKITE_PIPELINE_SLUG
+      - ./tools/licenses.sh /tmp/test-artifacts/licenses
       - diff -rNu3 /tmp/test-artifacts/licenses ./licenses/data
       - ./tools/gomocks diff
       - rm -rf /tmp/test-artifacts/antlr
@@ -58,7 +58,7 @@ steps:
         - exit_status: 255 # Forced agent shutdown
   - label: "Lint"
     if: build.message =~ /\[doc\]/
-    command: ./scion.sh lint
+    command: make lint
     key: lint
     timeout_in_minutes: 15
     retry:
@@ -148,7 +148,7 @@ steps:
       - mkdir -p /tmp/test-artifacts/trc-ceremony
       - export SAFEDIR="/tmp/test-artifacts/trc-ceremony"
       - ./scripts/cryptoplayground/trc_ceremony.sh
-      - sudo chmod 0777 /tmp/test-artifacts/trc-ceremony/*/keys/*.key
+      - ./scripts/cryptoplayground/trc_ceremony_sensitive.sh
     timeout_in_minutes: 15
     key: trc_ceremony_test
     artifact_paths:

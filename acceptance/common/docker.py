@@ -57,18 +57,33 @@ class Compose(object):
     def __call__(self, *args, **kwargs) -> str:
         """Runs docker compose with the given arguments"""
         with redirect_stderr(sys.stdout):
-            return cmd.docker_compose("-f", self.compose_file, "-p", self.project, "--no-ansi",
-                                      *args, **kwargs)
+            return cmd.docker_compose("-f", self.compose_file, "-p", self.project, *args, **kwargs)
 
     def collect_logs(self, out_dir: str = "logs/docker"):
         """Collects the logs from the services into the given directory"""
         out_p = plumbum.local.path(out_dir)
         cmd.mkdir("-p", out_p)
         for svc in self("config", "--services").splitlines():
+            # Collect logs.
             dst_f = out_p / "%s.log" % svc
             with open(dst_f, "w") as log_file:
                 cmd.docker.run(args=("logs", svc), stdout=log_file,
                                stderr=subprocess.STDOUT, retcode=None)
+            # Collect coredupms.
+            coredump_f = out_p / "%s.coredump" % svc
+            try:
+                cmd.docker.run(args=("cp", svc+":/share/coredump", coredump_f))
+            except Exception:
+                # If the coredump does not exist, do nothing.
+                pass
+            # Collect tshark traces.
+            try:
+                cmd.docker.run(args=("cp", svc+":/share/tshark", out_p))
+                cmd.mv(out_p / "tshark" // "*", out_p)
+                cmd.rmdir(out_p / "tshark")
+            except Exception:
+                # If there are no tshark captures, do nothing.
+                pass
 
 
 class _Network(NamedTuple):

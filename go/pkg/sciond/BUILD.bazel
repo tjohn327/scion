@@ -11,7 +11,6 @@ go_library(
         "//go/lib/infra/modules/itopo:go_default_library",
         "//go/lib/log:go_default_library",
         "//go/lib/metrics:go_default_library",
-        "//go/lib/pathdb:go_default_library",
         "//go/lib/prom:go_default_library",
         "//go/lib/revcache:go_default_library",
         "//go/lib/sciond:go_default_library",
@@ -31,6 +30,8 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = ["sciond_test.go"],
-    embed = [":go_default_library"],
-    deps = ["@com_github_stretchr_testify//assert:go_default_library"],
+    deps = [
+        ":go_default_library",
+        "@com_github_stretchr_testify//assert:go_default_library",
+    ],
 )

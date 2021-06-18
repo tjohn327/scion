@@ -23,9 +23,9 @@ import (
 	"github.com/scionproto/scion/go/lib/addr"
 	"github.com/scionproto/scion/go/lib/log"
 	"github.com/scionproto/scion/go/lib/serrors"
+	"github.com/scionproto/scion/go/pkg/ca/renewal"
 	cstrust "github.com/scionproto/scion/go/pkg/cs/trust"
 	"github.com/scionproto/scion/go/pkg/trust"
-	"github.com/scionproto/scion/go/pkg/trust/renewal"
 )
 
 // LoadTrustMaterial loads the trust material from disk. The logger must not be nil.
@@ -89,32 +89,37 @@ func NewSigner(ia addr.IA, db trust.DB, cfgDir string) (cstrust.RenewingSigner, 
 	}, nil
 }
 
-// LoadClientChains loads the client certificate chains.
-func LoadClientChains(db renewal.DB, configDir string) error {
-	ctx, cancelF := context.WithTimeout(context.Background(), time.Second)
-	defer cancelF()
-	return cstrust.ClientLoader{
-		Dir:      filepath.Join(configDir, "crypto/ca/clients"),
-		ClientDB: db,
-	}.LoadClientChains(ctx)
+type ChainBuilderConfig struct {
+	IA          addr.IA
+	DB          trust.DB
+	MaxValidity time.Duration
+	ConfigDir   string
+
+	// ForceECDSAWithSHA512 forces the CA policy to use ECDSAWithSHA512 as the
+	// signature algorithm for signing the issued certificate. This field
+	// forces the old behavior extending the acceptable signature algorithms
+	// in https://github.com/scionproto/scion/commit/df8565dc97cb6ef7c7925c26f23f3e9954ab2a97.
+	//
+	// Experimental: This field is experimental and will be subject to change.
+	ForceECDSAWithSHA512 bool
 }
 
 // NewChainBuilder creates a renewing chain builder.
-func NewChainBuilder(ia addr.IA, db trust.DB, maxVal time.Duration,
-	configDir string) cstrust.ChainBuilder {
+func NewChainBuilder(cfg ChainBuilderConfig) renewal.ChainBuilder {
 
-	return cstrust.ChainBuilder{
-		PolicyGen: &cstrust.CachingPolicyGen{
-			PolicyGen: cstrust.LoadingPolicyGen{
-				Validity: maxVal,
-				CertProvider: cstrust.CACertLoader{
-					IA:  ia,
-					DB:  db,
-					Dir: filepath.Join(configDir, "crypto/ca"),
+	return renewal.ChainBuilder{
+		PolicyGen: &renewal.CachingPolicyGen{
+			PolicyGen: renewal.LoadingPolicyGen{
+				Validity: cfg.MaxValidity,
+				CertProvider: renewal.CACertLoader{
+					IA:  cfg.IA,
+					DB:  cfg.DB,
+					Dir: filepath.Join(cfg.ConfigDir, "crypto/ca"),
 				},
 				KeyRing: cstrust.LoadingRing{
-					Dir: filepath.Join(configDir, "crypto/ca"),
+					Dir: filepath.Join(cfg.ConfigDir, "crypto/ca"),
 				},
+				ForceECDSAWithSHA512: cfg.ForceECDSAWithSHA512,
 			},
 		},
 	}

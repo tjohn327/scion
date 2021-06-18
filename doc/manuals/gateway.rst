@@ -258,6 +258,28 @@ Monitored paths
 
 **Labels**: ``remote_isd_as``
 
+Path probes sent
+^^^^^^^^^^^^^^^^
+
+**Name**: ``gateway_path_probes_sent``
+
+**Type**: Counter
+
+**Description**: Number of path probes being sent.
+
+**Labels**: ``remote_isd_as``
+
+Path probe replies received
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Name**: ``gateway_path_probes_received``
+
+**Type**: Counter
+
+**Description**: Number of replies to the path probes being received.
+
+**Labels**: ``remote_isd_as``
+
 Available session paths
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -270,6 +292,45 @@ Available session paths
 ``rejected`` ``alive``, and ``timeout``.
 
 **Labels**: ``remote_isd_as``, ``policy_id``, ``status``
+
+Session Monitoring Metrics
+--------------------------
+
+Session probes
+^^^^^^^^^^^^^^
+
+**Name**: ``gateway_session_probes``
+
+**Type**: Counter
+
+**Description**: Number of probes sent to a remote AS per session id.
+
+**Labels**: ``remote_isd_as``, ``policy_id``, ``session_id``
+
+Session probe replies
+^^^^^^^^^^^^^^^^^^^^^
+
+**Name**: ``gateway_session_probe_replies``
+
+**Type**: Counter
+
+**Description**: Number of probes from a remote AS per session id.
+
+**Labels**: ``remote_isd_as``, ``policy_id``, ``session_id``
+
+Session is healthy
+^^^^^^^^^^^^^^^^^^
+
+**Name**: ``gateway_session_is_healthy``
+
+**Type**: Gauge
+
+**Description**: Healthiness flag to a remote AS per session ID. The
+session is ephemeral so it is recommended to use after aggregating
+per `remote_isd_as` and `policy_id`.
+
+**Labels**: ``remote_isd_as``, ``policy_id``, ``session_id``
+
 
 Discovery Metrics
 -----------------
@@ -341,7 +402,7 @@ configuration setting.
 The HTTP API does not support user authentication or HTTPS. Applications will want to firewall
 this port or bind to a loopback address.
 
-In addition to the :ref:`common HTTP API <common-http-api>`, the ``daemon`` supports the following API calls:
+In addition to the :ref:`common HTTP API <common-http-api>`, the ``gateway`` supports the following API calls:
 
 - ``/status`` (**EXPERIMENTAL**)
 
@@ -558,21 +619,24 @@ In this scenario, Australia can configure the topology file as follows:
 
 .. code-block:: json
 
-   "sigs": {
-     "perth": {
-       "ctrl_addr": "...omitted...",
-       "data_addr": "...omitted...",
-      "allow_interfaces": [
-        101
-      ]
-    },
-    "melbourne": {
-      "ctrl_addr": "...omitted...",
-      "data_addr": "...omitted...",
-      "allow_interfaces": [
-        201
-      ]
-    }
+   {
+     "sigs": {
+       "perth": {
+         "ctrl_addr": "...omitted...",
+         "data_addr": "...omitted...",
+         "allow_interfaces": [
+           101
+         ]
+       },
+       "melbourne": {
+         "ctrl_addr": "...omitted...",
+         "data_addr": "...omitted...",
+         "allow_interfaces": [
+           201
+         ]
+       }
+     }
+   }
 
 Due to the additional ``allow_interfaces`` setting, the Discovery Service in
 the Australia AS will announce that the respective gateways should be

@@ -21,7 +21,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/scionproto/scion/go/lib/common"
 	"github.com/scionproto/scion/go/lib/log"
 	"github.com/scionproto/scion/go/lib/ringbuf"
 	"github.com/scionproto/scion/go/lib/serrors"
@@ -40,7 +39,7 @@ const (
 )
 
 type ingressSender interface {
-	send(common.RawBytes) error
+	send([]byte) error
 }
 
 // worker handles decapsulation of SIG frames.
@@ -57,7 +56,7 @@ type worker struct {
 }
 
 func newWorker(remote *snet.UDPAddr, sessID uint8,
-	tunIO io.Writer, metrics IngressMetrics) *worker {
+	tunIO io.WriteCloser, metrics IngressMetrics) *worker {
 
 	worker := &worker{
 		Logger:        log.New("ingress", remote.String(), "sessId", sessID),

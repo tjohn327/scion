@@ -1,7 +1,8 @@
 {
   "assign": {
     "exclude_files": {
-      "gazelle/walk/walk.go": ""
+      "gazelle/walk/walk.go": "",
+      "com_github_deepmap_oapi_codegen/pkg/codegen/": ""
     }
   },
   "composites": {
@@ -9,7 +10,8 @@
       "gazelle/language/go/resolve.go": "",
       "/io_bazel_rules_docker/": "",
       "/com_github_bazelbuild_buildtools/": "",
-      "/com_github_grpc_ecosystem_grpc_opentracing/go/otgrpc/": ""
+      "/com_github_grpc_ecosystem_grpc_opentracing/go/otgrpc/": "",
+      "/org_golang_x_tools/internal": ""
     }
   },
   "copylocks": {
@@ -53,7 +55,9 @@
       "/com_github_marten_seemann_qtls/": "",
       "/org_golang_google_protobuf/": "",
       "/com_github_magiconair_properties": "",
-      "/com_github_ghodss_yaml/":""
+      "/com_github_ghodss_yaml/": "",
+      "/com_github_lestrrat_go_iter/mapiter/": "",
+      "/com_github_lestrrat_go_iter/arrayiter/": ""
     }
   },
   "unsafeptr": {

@@ -19,10 +19,12 @@ from typing import Any, Dict, List, MutableMapping
 
 import toml
 from plumbum import local
-from plumbum.cmd import docker, pkill
+import yaml
+from plumbum.cmd import docker
 from plumbum.path.local import LocalPath
 
 from acceptance.common.log import LogExec
+from python.lib import scion_addr
 from python.lib.scion_addr import ISD_AS
 
 logger = logging.getLogger(__name__)
@@ -166,33 +168,33 @@ class SCIONDocker(SCION):
         self.end2end('-d', *args, retcode=code)
 
 
-class SCIONSupervisor(SCION):
+class ASList(object):
     """
-    SCIONSupervisor is used for interacting with the supervisor
-    SCION infrastructure.
+    ASList is a list of AS separated by core and non-core ASes. It can be loaded
+    from the as_list.yml file created by the topology generator.
     """
+    def __init__(self, cores: List[scion_addr.ISD_AS], non_cores: List[scion_addr.ISD_AS]):
+        self.cores = cores
+        self.non_cores = non_cores
 
-    @LogExec(logger, "creating supervisor topology")
-    def topology(self, topo_file: str, *args: str):
-        """ Create the topology files. """
-        self.scion_sh('topology', '-c', topo_file, *args)
+    @property
+    def all(self) -> List[scion_addr.ISD_AS]:
+        return self.cores + self.non_cores
 
-    def execute(self, isd_as: ISD_AS, cmd: str, *args: str) -> str:
-        return local[cmd](*args)
-
-    def _send_signals(self, svc_names: List[str], sig: str):
-        for svc_name in svc_names:
-            pkill('-f', '--signal', sig, 'bin/.*%s' % svc_name)
-
-    def _run_end2end(self, *args, code=0):
-        self.end2end(*args, retcode=code)
+    @staticmethod
+    def load(file: str = "gen/as_list.yml") -> "ASList":
+        with open(file, "r") as content:
+            data = yaml.load(content, yaml.Loader)
+        cores = [scion_addr.ISD_AS(raw) for raw in data["Core"]]
+        non_cores = [scion_addr.ISD_AS(raw) for raw in data["Non-core"]]
+        return ASList(cores, non_cores)
 
 
-def sciond_addr(isd_as: ISD_AS, port: bool = True):
+def sciond_addr(isd_as: ISD_AS, port: bool = True, gen_dir: str = "gen"):
     """
     Return the SCION Daemon address for the given AS.
     """
-    with open('gen/sciond_addresses.json') as f:
+    with open("%s/sciond_addresses.json" % gen_dir) as f:
         addrs = json.load(f)
         ip = addrs[str(isd_as)]
         if not port:

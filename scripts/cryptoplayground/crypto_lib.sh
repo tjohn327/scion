@@ -15,13 +15,28 @@ set_dirs() {
 # LITERALINCLUDE set_dirs END
 }
 
-export_paths() {
-# LITERALINCLUDE export_paths START
+export_paths_base() {
+# LITERALINCLUDE export_paths_base START
     # Dir that holds the certificates.
     export PUBDIR="path/to/public"
     # Dir that holds the secret keys.
     export KEYDIR="path/to/keys"
-# LITERALINCLUDE export_paths END
+    # The TRC ID of the TRC that is created in the ceremony.
+    export TRCID="ISD<isd-id>-B1-S1"
+# LITERALINCLUDE export_paths_base END
+}
+
+export_paths_update() {
+# LITERALINCLUDE export_paths_update START
+    # Dir that holds the certificates.
+    export PUBDIR="path/to/public"
+    # Dir that holds the secret keys.
+    export KEYDIR="path/to/keys"
+    # The TRC ID of the TRC that is created in the ceremony.
+    export TRCID="ISD<isd-id>-B1-S<serial-number>"
+    # The TRC ID of the predecessor TRC of this ceremony.
+    export PREDID="ISD<isd-id>-B1-S<serial-bumber>"
+# LITERALINCLUDE export_paths_update END
 }
 
 navigate_pubdir() {
@@ -57,12 +72,15 @@ docker_exec() {
         -e PUBDIR=$PUBDIR \
         -e STARTDATE=$STARTDATE \
         -e ENDDATE=$ENDDATE \
+        -e TRCID=$TRCID \
+        -e PREDID=$PREDID \
         $name \
         sh -c "set -e && . /scripts/crypto_lib.sh && $@"
 }
 
 in_docker() {
     docker run --rm \
+        --user $(id -u):$(id -g) \
         -v $(pwd):/workdir \
         -v $KEYDIR:/keydir \
         -e KEYDIR=/keydir  \
@@ -71,6 +89,8 @@ in_docker() {
         -v $PLAYGROUND:/scripts \
         -e STARTDATE=$STARTDATE \
         -e ENDDATE=$ENDDATE \
+        -e TRCID=$TRCID \
+        -e PREDID=$PREDID \
         emberstack/openssl \
         sh -c "set -e && . /scripts/crypto_lib.sh && $@"
 }
@@ -79,28 +99,31 @@ in_docker() {
 # Config file creation
 ######################
 
-payload_conf() {
+PAYLOAD_CONF_SAMPLE=$(cat <<-END
 # LITERALINCLUDE payload_conf_sample START
-# {{.ISD}}               = 1
-# {{.Description}}       = "Test ISD"
-# {{.VotingQuorum}}      = 2
-# {{.CoreASes}}          = ["ff00:0:110", "ff00:0:111"]
-# {{.AuthoritativeASes}} = ["ff00:0:110", "ff00:0:111"]
-# {{.NotBefore}}         = 1593000000  # Seconds since UNIX Epoch
-# {{.Validity}}          = "365d"
-# {{.CertFiles}} = [
-#     "bern/sensitive-voting.crt",
-#     "bern/regular-voting.crt",
-#     "bern/cp-root.crt",
-#     "geneva/sensitive-voting.crt",
-#     "geneva/regular-voting.crt",
-#     "zürich/sensitive-voting.crt",
-#     "zürich/regular-voting.crt",
-# ]
+{{.ISD}}               = 1
+{{.Description}}       = "Test ISD"
+{{.VotingQuorum}}      = 2
+{{.CoreASes}}          = ["ff00:0:110", "ff00:0:111"]
+{{.AuthoritativeASes}} = ["ff00:0:110", "ff00:0:111"]
+{{.NotBefore}}         = 1593000000  # Seconds since UNIX Epoch
+{{.Validity}}          = "365d"
+{{.CertFiles}} = [
+    "bern/sensitive-voting.crt",
+    "bern/regular-voting.crt",
+    "bern/cp-root.crt",
+    "geneva/sensitive-voting.crt",
+    "geneva/regular-voting.crt",
+    "zürich/sensitive-voting.crt",
+    "zürich/regular-voting.crt",
+]
 # LITERALINCLUDE payload_conf_sample END
+END
+)
 
+payload_conf() {
 # LITERALINCLUDE payload_conf START
-cat << EOF > ISD-B1-S1.toml
+cat << EOF > $TRCID.toml
 isd                = {{.ISD}}
 description        = {{.Description}}
 serial_version     = 1
@@ -116,6 +139,53 @@ not_before = {{.NotBefore}}
 validity   = {{.Validity}}
 EOF
 # LITERALINCLUDE payload_conf END
+}
+
+SENSITIVE_PAYLOAD_CONF_SAMPLE=$(cat <<-END
+# LITERALINCLUDE sensitive_payload_conf_sample START
+{{.ISD}}               = 1
+{{.Description}}       = "Test ISD"
+{{.SerialNumber}}      = 2
+{{.GracePeriod}}       = "30d"
+{{.VotingQuorum}}      = 2
+{{.Votes}}             = [0, 3, 5]
+{{.CoreASes}}          = ["ff00:0:110", "ff00:0:111"]
+{{.AuthoritativeASes}} = ["ff00:0:110", "ff00:0:111"]
+{{.NotBefore}}         = 1621857600  # Seconds since UNIX Epoch
+{{.Validity}}          = "365d"
+{{.CertFiles}} = [
+    "bern/sensitive-voting.crt",
+    "bern/regular-voting.crt",
+    "bern/cp-root.crt",
+    "geneva/sensitive-voting.crt",
+    "geneva/regular-voting.crt",
+    "zürich/sensitive-voting.crt",
+    "zürich/regular-voting.crt",
+]
+# LITERALINCLUDE sensitive_payload_conf_sample END
+END
+)
+
+sensitive_payload_conf() {
+# LITERALINCLUDE sensitive_payload_conf START
+cat << EOF > $TRCID.toml
+isd                = {{.ISD}}
+description        = {{.Description}}
+serial_version     = {{.SerialNumber}}
+base_version       = 1
+grace_period       = {{.GracePeriod}}
+voting_quorum      = {{.VotingQuorum}}
+votes              = {{.Votes}}
+core_ases          = {{.CoreASes}}
+authoritative_ases = {{.AuthoritativeASes}}
+cert_files         = {{.CertFiles}}
+no_trust_reset     = false
+
+[validity]
+not_before = {{.NotBefore}}
+validity   = {{.Validity}}
+EOF
+# LITERALINCLUDE sensitive_payload_conf END
 }
 
 basic_conf() {
@@ -179,12 +249,12 @@ sensitive_conf() {
 # LITERALINCLUDE sensitive_conf START
 cat << EOF > sensitive-voting.cnf
 openssl_conf    = openssl_init
-x509_extensions = req_ext
+x509_extensions = x509_ext
 
 [common_name]
 name = {{.ShortOrg}} High Security Voting Certificate
 
-[req_ext]
+[x509_ext]
 subjectKeyIdentifier = hash
 extendedKeyUsage     = 1.3.6.1.4.1.55324.1.3.1, 1.3.6.1.5.5.7.3.8
 
@@ -200,12 +270,12 @@ regular_conf() {
 # LITERALINCLUDE regular_conf START
 cat << EOF > regular-voting.cnf
 openssl_conf    = openssl_init
-x509_extensions = req_ext
+x509_extensions = x509_ext
 
 [common_name]
 name = {{.ShortOrg}} Regular Voting Certificate
 
-[req_ext]
+[x509_ext]
 subjectKeyIdentifier = hash
 extendedKeyUsage     = 1.3.6.1.4.1.55324.1.3.2, 1.3.6.1.5.5.7.3.8
 
@@ -221,12 +291,12 @@ root_conf() {
 # LITERALINCLUDE root_conf START
 cat << EOF > cp-root.cnf
 openssl_conf    = openssl_init
-x509_extensions = req_ext
+x509_extensions = x509_ext
 
 [common_name]
 name = {{.ShortOrg}} High Security Root Certificate
 
-[req_ext]
+[x509_ext]
 basicConstraints     = critical, CA:TRUE, pathlen:1
 keyUsage             = critical, keyCertSign
 subjectKeyIdentifier = hash
@@ -244,19 +314,25 @@ ca_conf() {
 # LITERALINCLUDE ca_conf START
 cat << EOF > cp-ca.cnf
 openssl_conf    = openssl_init
-x509_extensions = req_ext
+x509_extensions = x509_ext
+req_extensions  = req_ext
 
 [common_name]
 name = {{.ShortOrg}} Secure CA Certificate
 
-[req_ext]
+[x509_ext]
 basicConstraints       = critical, CA:TRUE, pathlen:0
 keyUsage               = critical, keyCertSign
 subjectKeyIdentifier   = hash
 authorityKeyIdentifier = keyid
 
+[req_ext]
+basicConstraints       = critical, CA:TRUE, pathlen:0
+keyUsage               = critical, keyCertSign
+subjectKeyIdentifier   = hash
+
 [ca_defaults]
-default_days = 7
+default_days = 11
 
 .include basic.cnf
 EOF
@@ -267,15 +343,21 @@ as_conf() {
 # LITERALINCLUDE as_conf START
 cat << EOF > cp-as.cnf
 openssl_conf    = openssl_init
-x509_extensions = req_ext
+x509_extensions = x509_ext
+req_extensions  = req_ext
 
 [common_name]
 name = {{.ShortOrg}} AS Certificate
 
-[req_ext]
+[x509_ext]
 keyUsage               = critical, digitalSignature
 subjectKeyIdentifier   = hash
 authorityKeyIdentifier = keyid
+extendedKeyUsage       = 1.3.6.1.5.5.7.3.1, 1.3.6.1.5.5.7.3.2, 1.3.6.1.5.5.7.3.8
+
+[req_ext]
+keyUsage               = critical, digitalSignature
+subjectKeyIdentifier   = hash
 extendedKeyUsage       = 1.3.6.1.5.5.7.3.1, 1.3.6.1.5.5.7.3.2, 1.3.6.1.5.5.7.3.8
 
 [ca_defaults]
@@ -323,6 +405,18 @@ check_sensitive_type() {
 # LITERALINCLUDE check_sensitive_type END
 }
 
+version_sensitive() {
+# LITERALINCLUDE version_sensitive START
+    # Uncomment and set appropriate value:
+    #
+    # PREDID="ISD1-B1-S1"
+
+    mkdir -p $KEYDIR/$PREDID $PREDID
+    mv $KEYDIR/sensitive-voting.key $KEYDIR/$PREDID/sensitive-voting.key
+    mv sensitive-voting.crt $PREDID/sensitive-voting.crt
+# LITERALINCLUDE version_sensitive END
+}
+
 gen_regular() {
 # LITERALINCLUDE gen_regular START
     # Uncomment and set the appropriate values:
@@ -356,6 +450,18 @@ check_regular_type() {
 # LITERALINCLUDE check_regular_type END
 }
 
+version_regular() {
+# LITERALINCLUDE version_regular START
+    # Uncomment and set appropriate value:
+    #
+    # PREDID="ISD1-B1-S1"
+
+    mkdir -p $KEYDIR/$PREDID $PREDID
+    mv $KEYDIR/regular-voting.key $KEYDIR/$PREDID/regular-voting.key
+    mv regular-voting.crt $PREDID/regular-voting.crt
+# LITERALINCLUDE version_regular END
+}
+
 gen_root() {
 # LITERALINCLUDE gen_root START
     # Uncomment and set the appropriate values:
@@ -387,6 +493,18 @@ check_root_type() {
 # LITERALINCLUDE check_root_type START
     scion-pki certs validate --type cp-root cp-root.crt
 # LITERALINCLUDE check_root_type END
+}
+
+version_root() {
+# LITERALINCLUDE version_root START
+    # Uncomment and set appropriate value:
+    #
+    # PREDID="ISD1-B1-S1"
+
+    mkdir -p $KEYDIR/$PREDID $PREDID
+    mv $KEYDIR/cp-root.key $KEYDIR/$PREDID/cp-root.key
+    mv cp-root.crt $PREDID/cp-root.crt
+# LITERALINCLUDE version_root END
 }
 
 gen_ca() {
@@ -470,13 +588,17 @@ check_as_type() {
 
 sign_payload() {
 # LITERALINCLUDE sign_payload START
-    openssl cms -sign -in ISD-B1-S1.pld.der -inform der -md sha512 \
-        -signer $PUBDIR/regular-voting.crt -inkey $KEYDIR/regular-voting.key \
-        -nodetach -nocerts -nosmimecap -binary -outform der > ISD-B1-S1.regular.trc
+    openssl cms -sign -in $TRCID.pld.der -inform der -md sha512 \
+        -signer $PUBDIR/regular-voting.crt \
+        -inkey $KEYDIR/regular-voting.key \
+        -nodetach -nocerts -nosmimecap -binary -outform der \
+        > $TRCID.regular.trc
 
-    openssl cms -sign -in ISD-B1-S1.pld.der -inform der -md sha512 \
-        -signer $PUBDIR/sensitive-voting.crt -inkey $KEYDIR/sensitive-voting.key \
-        -nodetach -nocerts -nosmimecap -binary -outform der > ISD-B1-S1.sensitive.trc
+    openssl cms -sign -in $TRCID.pld.der -inform der -md sha512 \
+        -signer $PUBDIR/sensitive-voting.crt \
+        -inkey $KEYDIR/sensitive-voting.key \
+        -nodetach -nocerts -nosmimecap -binary -outform der \
+        > $TRCID.sensitive.trc
 
     # The cms command allows signing payloads according to the Cryptographic Message
     # Syntax defined in RFC5652.  The main purpose of the cms command is interacting
@@ -498,15 +620,39 @@ sign_payload() {
 # LITERALINCLUDE sign_payload END
 }
 
+sensitive_vote() {
+# LITERALINCLUDE sensitive_vote START
+    openssl cms -sign -in $TRCID.pld.der -inform der -md sha512 \
+        -signer $PUBDIR/$PREDID/sensitive-voting.crt \
+        -inkey $KEYDIR/$PREDID/sensitive-voting.key \
+        -nodetach -nocerts -nosmimecap -binary -outform der \
+        > $TRCID.sensitive.vote.trc
+# LITERALINCLUDE sensitive_vote END
+}
+
+regular_vote() {
+# LITERALINCLUDE regular_vote START
+    openssl cms -sign -in $TRCID.pld.der -inform der -md sha512 \
+        -signer $PUBDIR/$PREDID/regular-voting.crt \
+        -inkey $KEYDIR/$PREDID/regular-voting.key \
+        -nodetach -nocerts -nosmimecap -binary -outform der \
+        > $TRCID.regular.vote.trc
+# LITERALINCLUDE regular_vote END
+}
+
 check_signed_payload() {
 # LITERALINCLUDE check_signed_payload START
-    openssl cms -verify -in ISD-B1-S1.sensitive.trc -inform der \
-        -certfile $PUBDIR/sensitive-voting.crt -CAfile $PUBDIR/sensitive-voting.crt \
-        -purpose any -no_check_time > /dev/null
+    openssl cms -verify -in $TRCID.sensitive.trc -inform der \
+        -certfile $PUBDIR/sensitive-voting.crt \
+        -CAfile $PUBDIR/sensitive-voting.crt \
+        -purpose any -no_check_time \
+        > /dev/null
 
-    openssl cms -verify -in ISD-B1-S1.regular.trc -inform der \
-        -certfile $PUBDIR/regular-voting.crt -CAfile $PUBDIR/regular-voting.crt \
-        -purpose any -no_check_time > /dev/null
+    openssl cms -verify -in $TRCID.regular.trc -inform der \
+        -certfile $PUBDIR/regular-voting.crt \
+        -CAfile $PUBDIR/regular-voting.crt \
+        -purpose any -no_check_time \
+        > /dev/null
 
     # The cms command allows verifying payloads according to the Cryptographic
     # Message Syntax defined in RFC5652.  The main purpose of the cms command is
@@ -527,13 +673,34 @@ check_signed_payload() {
 # LITERALINCLUDE check_signed_payload END
 }
 
+check_sensitive_vote() {
+# LITERALINCLUDE check_sensitive_vote START
+    openssl cms -verify -in $TRCID.sensitive.vote.trc -inform der \
+        -certfile $PUBDIR/$PREDID/sensitive-voting.crt \
+        -CAfile $PUBDIR/$PREDID/sensitive-voting.crt \
+        -purpose any -no_check_time \
+        > /dev/null
+# LITERALINCLUDE check_sensitive_vote END
+}
+
+check_regular_vote() {
+# LITERALINCLUDE check_regular_vote START
+    openssl cms -verify -in $TRCID.regular.vote.trc -inform der \
+        -certfile $PUBDIR/$PREDID/regular-voting.crt \
+        -CAfile $PUBDIR/$PREDID/regular-voting.crt \
+        -purpose any -no_check_time \
+        > /dev/null
+# LITERALINCLUDE check_regular_vote END
+}
+
 verify_trc() {
 # LITERALINCLUDE verify_trc START
-    cat */*voting.crt > /tmp/bundle.crt
+    cat */*voting.crt >> bundle.crt
 
-    openssl cms -verify -in ISD-B1-S1.trc -inform der \
-        -certfile /tmp/bundle.crt -CAfile /tmp/bundle.crt \
-        -purpose any -no_check_time > /tmp/ISD-B1-S1.pld.extracted
+    openssl cms -verify -in $TRCID.trc -inform der \
+        -certfile bundle.crt -CAfile bundle.crt \
+        -purpose any -no_check_time -partial_chain \
+        > /tmp/$TRCID.pld.extracted
 
     # The cms command allows verifying payloads according to the Cryptographic
     # Message Syntax defined in RFC5652.  The main purpose of the cms command is
@@ -557,7 +724,7 @@ verify_trc() {
     # certificate' This is due to how openssl builds the verification path. To
     # suppress that error, set the -partial_chain flag.
 
-    openssl asn1parse -i -in /tmp/ISD-B1-S1.pld.extracted -inform der
+    openssl asn1parse -i -in /tmp/$TRCID.pld.extracted -inform der
 
     # The asn1parse command is a diagnostic utility that can parse ASN.1 structures.
     #
@@ -569,7 +736,7 @@ verify_trc() {
 
 display_payload() {
 # LITERALINCLUDE display_payload START
-    openssl asn1parse -i -in ISD-B1-S1.pld.der -inform der
+    openssl asn1parse -i -in $TRCID.pld.der -inform der
 
     # The asn1parse command is a diagnostic utility that can parse ASN.1 structures.
     #
@@ -581,7 +748,7 @@ display_payload() {
 
 display_signatures() {
 # LITERALINCLUDE display_signatures START
-    openssl pkcs7 -in ISD-B1-S1.trc -inform der -print -noout
+    openssl pkcs7 -in $TRCID.trc -inform der -print -noout
 
     # The pkcs7 command is a diagnostic utility that can inspect PKCS#7
     # structures.  Our CMS signed payload is compatible with PKCS#7.

@@ -19,7 +19,6 @@ import (
 	"container/list"
 	"fmt"
 
-	"github.com/scionproto/scion/go/lib/common"
 	"github.com/scionproto/scion/go/lib/log"
 	"github.com/scionproto/scion/go/lib/metrics"
 )
@@ -52,7 +51,7 @@ func newReassemblyList(epoch int, capacity int, s ingressSender,
 		snd:               s,
 		markedForDeletion: false,
 		entries:           list.New(),
-		buf:               bytes.NewBuffer(make(common.RawBytes, 0, frameBufCap)),
+		buf:               bytes.NewBuffer(make([]byte, 0, frameBufCap)),
 	}
 	if framesDiscarded != nil {
 		list.tooOld = framesDiscarded.With("reason", "too_old")
@@ -213,10 +212,6 @@ func (l *reassemblyList) removeEntry(e *list.Element) {
 	frame := e.Value.(*frameBuf)
 	frame.Release()
 	l.entries.Remove(e)
-}
-
-func (l *reassemblyList) removeOldest() {
-	l.removeEntry(l.entries.Front())
 }
 
 func (l *reassemblyList) removeProcessed() {

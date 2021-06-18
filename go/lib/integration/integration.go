@@ -23,8 +23,10 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -142,7 +144,12 @@ func addTestFlags() {
 
 func validateFlags() error {
 	flag.Parse()
-	logCfg := log.Config{Console: log.ConsoleConfig{Level: logConsole}}
+	logCfg := log.Config{
+		Console: log.ConsoleConfig{
+			Level:           logConsole,
+			StacktraceLevel: "none",
+			DisableCaller:   true,
+		}}
 	if err := log.Setup(logCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		flag.Usage()
@@ -220,6 +227,13 @@ type HostAddr func(ia addr.IA) *snet.UDPAddr
 var DispAddr HostAddr = func(ia addr.IA) *snet.UDPAddr {
 	if a := loadAddr(ia); a != nil {
 		return a
+	}
+	if raw, err := ioutil.ReadFile(GenFile("networks.conf")); err == nil {
+		pattern := fmt.Sprintf("tester_%s = (.*)", ia.FileFmt(false))
+		matches := regexp.MustCompile(pattern).FindSubmatch(raw)
+		if len(matches) == 2 {
+			return &snet.UDPAddr{IA: ia, Host: &net.UDPAddr{IP: net.ParseIP(string(matches[1]))}}
+		}
 	}
 	path := GenFile(fmt.Sprintf("AS%s/topology.json", ia.A.FileFmt()))
 	topo, err := topology.RWTopologyFromJSONFile(path)

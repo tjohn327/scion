@@ -32,21 +32,36 @@ const (
 	CertVersion = 3
 )
 
-// KeyUsage oids.
+// ExtKeyUsage oids.
 var (
 	OIDExtKeyUsageSensitive = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 55324, 1, 3, 1}
 	OIDExtKeyUsageRegular   = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 55324, 1, 3, 2}
 	OIDExtKeyUsageRoot      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 55324, 1, 3, 3}
+
+	OIDExtKeyUsageServerAuth   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 1}
+	OIDExtKeyUsageClientAuth   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 2}
+	OIDExtKeyUsageTimeStamping = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 8}
 )
 
-// Other oids.
+// DistinguishedName oids.
 var (
 	OIDNameIA = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 55324, 1, 2, 1}
+)
+
+// x.509v3 extension oids.
+var (
+	OIDExtensionSubjectKeyID     = asn1.ObjectIdentifier{2, 5, 29, 14}
+	OIDExtensionKeyUsage         = asn1.ObjectIdentifier{2, 5, 29, 15}
+	OIDExtensionBasicConstraints = asn1.ObjectIdentifier{2, 5, 29, 19}
+	OIDExtensionAuthorityKeyID   = asn1.ObjectIdentifier{2, 5, 29, 35}
+	OIDExtensionExtendedKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 37}
 )
 
 // Valid SCION signatures
 var (
 	ValidSCIONSignatureAlgs = []x509.SignatureAlgorithm{
+		x509.ECDSAWithSHA256,
+		x509.ECDSAWithSHA384,
 		x509.ECDSAWithSHA512,
 	}
 )
@@ -54,6 +69,8 @@ var (
 var (
 	// ErrInvalidCertType indicates an invalid certificate type.
 	ErrInvalidCertType = serrors.New("invalid certificate type")
+
+	errIANotFound = serrors.New("ISD-AS not found")
 )
 
 // CertType describes the type of the SCION certificate.
@@ -120,30 +137,52 @@ func ReadPEMCerts(file string) ([]*x509.Certificate, error) {
 
 // VerifyOptions contains parameters for certificate chain verification.
 type VerifyOptions struct {
-	TRC         *TRC
+	TRC         []*TRC
 	CurrentTime time.Time // if zero, the current time is used
 }
 
-// VerifyChain attempts to verify the certificate chain by iterating over the
-// root certificates in the TRC and searching for a valid verification path.
+// VerifyChain attempts to verify the certificate chain against every TRC
+// included in opts. Success (nil error) is returned if at least one verification
+// succeeds. If all verifications fail, an error containing the details of why
+// each verification failed is returned.
+//
+// The certificate chain is verified by building a trust root based on the Root
+// Certificates in each TRC, and searching for a valid verification path.
 func VerifyChain(certs []*x509.Certificate, opts VerifyOptions) error {
+	var errs []error
+	for _, trc := range opts.TRC {
+		if err := verifyChain(certs, trc, opts.CurrentTime); err != nil {
+			errs = append(errs,
+				serrors.WrapStr("verifying chain", err,
+					"trc_base", trc.ID.Base,
+					"trc_serial", trc.ID.Serial,
+				),
+			)
+		} else {
+			return nil
+		}
+	}
+	return serrors.New("chain did not verify against any selected TRC", "errors", errs)
+}
+
+func verifyChain(certs []*x509.Certificate, trc *TRC, now time.Time) error {
 	if err := ValidateChain(certs); err != nil {
 		return serrors.WrapStr("chain validation failed", err)
 	}
-	if opts.TRC == nil || opts.TRC.IsZero() {
+	if trc == nil || trc.IsZero() {
 		return serrors.New("TRC required for chain verification")
 	}
 	intPool := x509.NewCertPool()
 	intPool.AddCert(certs[1])
-	rootPool, err := opts.TRC.RootPool()
+	rootPool, err := trc.RootPool()
 	if err != nil {
-		return serrors.WrapStr("failed to extract root certs", err, "trc", opts.TRC.ID)
+		return serrors.WrapStr("failed to extract root certs", err, "trc", trc.ID)
 	}
 	_, err = certs[0].Verify(x509.VerifyOptions{
 		Intermediates: intPool,
 		Roots:         rootPool,
 		KeyUsages:     certs[0].ExtKeyUsage,
-		CurrentTime:   opts.CurrentTime,
+		CurrentTime:   now,
 	})
 	return err
 }
@@ -157,7 +196,7 @@ func ValidateChain(certs []*x509.Certificate) error {
 
 	first, err := ValidateCert(certs[0])
 	if err != nil {
-		return err
+		return serrors.WrapStr("validating first certificate", err)
 	}
 	if first != AS {
 		return serrors.New("first certificate of invalid type", "expected", AS, "actual", first)
@@ -166,7 +205,7 @@ func ValidateChain(certs []*x509.Certificate) error {
 
 	second, err := ValidateCert(certs[1])
 	if err != nil {
-		return err
+		return serrors.WrapStr("validating second certificate", err)
 	}
 	if second != CA {
 		return serrors.New("second certificate of invalid type", "expected", CA, "actual", second)
@@ -388,12 +427,11 @@ func commonCAValidation(c *x509.Certificate, pathLen int) error {
 			errs = append(errs, serrors.New("cannot have id-kp-serverAuth as ExtKeyUsage"))
 		}
 	}
-	if v, ok := oidInExtensions(asn1.ObjectIdentifier{2, 5, 29, 19},
-		c.Extensions); ok && !v.Critical {
-		errs = append(errs, serrors.New("basic contraints not critical"))
+	if v, ok := oidInExtensions(OIDExtensionBasicConstraints, c.Extensions); ok && !v.Critical {
+		errs = append(errs, serrors.New("basic constraints not critical"))
 	}
 	if !c.BasicConstraintsValid || !c.IsCA || c.MaxPathLen != pathLen {
-		errs = append(errs, serrors.New("basic contraints not valid"))
+		errs = append(errs, serrors.New("basic constraints not valid"))
 	}
 	if err := subjectAndIssuerIASet(c); err != nil {
 		errs = append(errs, err)
@@ -418,20 +456,13 @@ func generalValidation(c *x509.Certificate) error {
 	if len(c.SubjectKeyId) == 0 {
 		errs = append(errs, serrors.New("subjectKeyID is missing"))
 	}
-	// oidSubjectKeyId  []int{2, 5, 29, 14}
-	if v, ok := oidInExtensions(asn1.ObjectIdentifier{2, 5, 29, 14},
-		c.Extensions); ok && v.Critical == true {
-		errs = append(errs, serrors.New("subjecKeyID is marked as critical"))
+	if v, ok := oidInExtensions(OIDExtensionSubjectKeyID, c.Extensions); ok && v.Critical == true {
+		errs = append(errs, serrors.New("subjectKeyID is marked as critical"))
 	}
-	// oidAuthorityKeyId  []int{2, 5, 29, 35}
-	if v, ok := oidInExtensions(asn1.ObjectIdentifier{2, 5, 29, 35},
+	if v, ok := oidInExtensions(OIDExtensionAuthorityKeyID,
 		c.Extensions); ok && v.Critical == true {
+
 		errs = append(errs, serrors.New("authKeyId is marked as critical"))
-	}
-	// oidExtensionSubjectAltName  []int{2, 5, 29, 17}
-	if _, ok := oidInExtensions(asn1.ObjectIdentifier{2, 5, 29, 17},
-		c.Extensions); ok {
-		errs = append(errs, serrors.New("subjectAltName is set"))
 	}
 
 	return errs.ToError()
@@ -468,23 +499,32 @@ func containsOID(oids []asn1.ObjectIdentifier, o asn1.ObjectIdentifier) bool {
 
 func subjectAndIssuerIASet(c *x509.Certificate) error {
 	var errs serrors.List
-	if issuerIA, err := ExtractIA(c.Issuer); err != nil {
-		errs = append(errs, err)
-	} else if issuerIA == nil {
-		errs = append(errs, serrors.New("missing issuer IA"))
+	if _, err := ExtractIA(c.Issuer); err != nil {
+		errs = append(errs, serrors.WrapStr("extracting issuer ISD-AS", err))
 	}
-	if subjectIA, err := ExtractIA(c.Subject); err != nil {
-		errs = append(errs, err)
-	} else if subjectIA == nil {
-		errs = append(errs, serrors.New("missing subject IA"))
+	if _, err := ExtractIA(c.Subject); err != nil {
+		errs = append(errs, serrors.WrapStr("extracting subject ISD-AS", err))
 	}
 	return errs.ToError()
 }
 
-// ExtractIA extracts the IA from the distinguished name. Returns nil if the
-// ISD-AS number is not present in the distinguished name. If the ISD-AS
-// number is not parsable, an error is returned.
-func ExtractIA(dn pkix.Name) (*addr.IA, error) {
+// ExtractIA extracts the ISD-AS from the distinguished name. If the ISD-AS
+// number is not present in the distinguished name, an error is returned.
+func ExtractIA(dn pkix.Name) (addr.IA, error) {
+	ia, err := findIA(dn)
+	if err != nil {
+		return addr.IA{}, err
+	}
+	if ia == nil {
+		return addr.IA{}, errIANotFound
+	}
+	return *ia, nil
+}
+
+// findIA extracts the ISD-AS from the distinguished name if it exists. If the
+// ISD-AS number is not present in the distinguished name, it returns nil. If
+// the ISD-AS number is not parsable, an error is returned.
+func findIA(dn pkix.Name) (*addr.IA, error) {
 	for _, name := range dn.Names {
 		if !name.Type.Equal(OIDNameIA) {
 			continue
@@ -533,12 +573,12 @@ func commonVotingValidation(c *x509.Certificate) error {
 		errs = append(errs, serrors.New("id-kp-serverAuth is set"))
 	}
 	if c.BasicConstraintsValid && c.IsCA {
-		errs = append(errs, serrors.New("basicConstraints exists and CA is true"))
+		errs = append(errs, serrors.New("basic constraints exists and CA is true"))
 	}
-	if _, err := ExtractIA(c.Issuer); err != nil {
+	if _, err := findIA(c.Issuer); err != nil {
 		errs = append(errs, err)
 	}
-	if _, err := ExtractIA(c.Subject); err != nil {
+	if _, err := findIA(c.Subject); err != nil {
 		errs = append(errs, err)
 	}
 

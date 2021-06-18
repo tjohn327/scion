@@ -6,7 +6,6 @@ package mock_conn
 
 import (
 	gomock "github.com/golang/mock/gomock"
-	common "github.com/scionproto/scion/go/lib/common"
 	conn "github.com/scionproto/scion/go/lib/underlay/conn"
 	net "net"
 	reflect "reflect"
@@ -64,35 +63,35 @@ func (mr *MockConnMockRecorder) LocalAddr() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalAddr", reflect.TypeOf((*MockConn)(nil).LocalAddr))
 }
 
-// Read mocks base method
-func (m *MockConn) Read(arg0 common.RawBytes) (int, *conn.ReadMeta, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Read", arg0)
-	ret0, _ := ret[0].(int)
-	ret1, _ := ret[1].(*conn.ReadMeta)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// Read indicates an expected call of Read
-func (mr *MockConnMockRecorder) Read(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Read", reflect.TypeOf((*MockConn)(nil).Read), arg0)
-}
-
 // ReadBatch mocks base method
-func (m *MockConn) ReadBatch(arg0 conn.Messages, arg1 []conn.ReadMeta) (int, error) {
+func (m *MockConn) ReadBatch(arg0 conn.Messages) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReadBatch", arg0, arg1)
+	ret := m.ctrl.Call(m, "ReadBatch", arg0)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ReadBatch indicates an expected call of ReadBatch
-func (mr *MockConnMockRecorder) ReadBatch(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockConnMockRecorder) ReadBatch(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadBatch", reflect.TypeOf((*MockConn)(nil).ReadBatch), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadBatch", reflect.TypeOf((*MockConn)(nil).ReadBatch), arg0)
+}
+
+// ReadFrom mocks base method
+func (m *MockConn) ReadFrom(arg0 []byte) (int, *net.UDPAddr, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFrom", arg0)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(*net.UDPAddr)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReadFrom indicates an expected call of ReadFrom
+func (mr *MockConnMockRecorder) ReadFrom(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFrom", reflect.TypeOf((*MockConn)(nil).ReadFrom), arg0)
 }
 
 // RemoteAddr mocks base method
@@ -152,7 +151,7 @@ func (mr *MockConnMockRecorder) SetWriteDeadline(arg0 interface{}) *gomock.Call 
 }
 
 // Write mocks base method
-func (m *MockConn) Write(arg0 common.RawBytes) (int, error) {
+func (m *MockConn) Write(arg0 []byte) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Write", arg0)
 	ret0, _ := ret[0].(int)
@@ -182,7 +181,7 @@ func (mr *MockConnMockRecorder) WriteBatch(arg0 interface{}) *gomock.Call {
 }
 
 // WriteTo mocks base method
-func (m *MockConn) WriteTo(arg0 common.RawBytes, arg1 *net.UDPAddr) (int, error) {
+func (m *MockConn) WriteTo(arg0 []byte, arg1 *net.UDPAddr) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WriteTo", arg0, arg1)
 	ret0, _ := ret[0].(int)

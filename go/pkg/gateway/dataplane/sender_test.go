@@ -16,7 +16,6 @@ package dataplane
 
 import (
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -24,13 +23,10 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 
-	"github.com/scionproto/scion/go/lib/addr"
-	"github.com/scionproto/scion/go/lib/log"
 	"github.com/scionproto/scion/go/lib/mocks/net/mock_net"
 )
-
-var testIA addr.IA = addr.IA{I: 1, A: 2}
 
 func expectFrames(conn *mock_net.MockPacketConn) *gomock.Call {
 	return conn.EXPECT().WriteTo(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -46,8 +42,7 @@ func waitForFrames() {
 }
 
 func TestMain(m *testing.M) {
-	log.Discard()
-	os.Exit(m.Run())
+	goleak.VerifyTestMain(m)
 }
 
 func TestSender(t *testing.T) {

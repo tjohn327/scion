@@ -56,7 +56,8 @@ func TestSenderCreatePath(t *testing.T) {
 	assert.Equal(t, uint16(0), hop.ConsIngress)
 	assert.Equal(t, uint16(12), hop.ConsEgress)
 	assert.Equal(t, uint8(63), hop.ExpTime)
-	assert.NoError(t, libpath.VerifyMAC(createMac(t), &info, &hop))
+	mac := libpath.MAC(createMac(t), &info, &hop)
+	assert.Equal(t, mac, hop.Mac[:6])
 }
 
 func TestSenderCreatePkt(t *testing.T) {
@@ -124,16 +125,6 @@ func checkTestPkt(t *testing.T, s *Sender, msg *Msg, pkt *snet.Packet) {
 	assert.True(t, pkt.Path.IsOHP())
 	assert.Equal(t, uint16(4242), pkt.Payload.(snet.UDPPayload).SrcPort)
 	assert.Equal(t, msg.Pld, pkt.Payload.(snet.UDPPayload).Payload)
-}
-
-// testConn is a packet conn that returns an empty underlay address.
-type testConn struct {
-	net.PacketConn
-}
-
-func (conn *testConn) ReadFrom(b []byte) (int, net.Addr, error) {
-	n, _, err := conn.PacketConn.ReadFrom(b)
-	return n, &net.UDPAddr{}, err
 }
 
 func createMac(t *testing.T) hash.Hash {

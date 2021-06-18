@@ -169,7 +169,7 @@ func RWTopologyFromJSONTopology(raw *jsontopo.Topology) (*RWTopology, error) {
 }
 
 // RWTopologyFromJSONBytes extracts the topology from a JSON representation in raw byte format.
-func RWTopologyFromJSONBytes(b common.RawBytes) (*RWTopology, error) {
+func RWTopologyFromJSONBytes(b []byte) (*RWTopology, error) {
 	rt := &jsontopo.Topology{}
 	if err := json.Unmarshal(b, rt); err != nil {
 		return nil, err
@@ -625,10 +625,6 @@ func (s ServiceNames) GetRandom() (string, error) {
 		return "", serrors.New("No names present")
 	}
 	return s[rand.Intn(numServers)], nil
-}
-
-func (s ServiceNames) copy() ServiceNames {
-	return append(s[:0:0], s...)
 }
 
 func copyUDPAddr(a *net.UDPAddr) *net.UDPAddr {
