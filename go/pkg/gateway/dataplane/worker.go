@@ -51,7 +51,7 @@ type worker struct {
 	Metrics          IngressMetrics
 	rlists           map[int]*reassemblyList
 	markedForCleanup bool
-	tunIO            io.Writer
+	tunIO            io.WriteCloser
 	packetMemIPV4    map[uint16]time.Time
 }
 
@@ -150,10 +150,9 @@ func (w *worker) cleanup() {
 			rlist.markedForDeletion = true
 		}
 	}
-	// w.packetMemIPV4 = w.packetMemIPV4[:0]
 }
 
-func (w *worker) send(packet common.RawBytes) error {
+func (w *worker) send(packet []byte) error {
 	checkSum := extractCheckSum(packet)
 	if checkSum > 0 { //check if IPv4
 		now := time.Now()
@@ -164,7 +163,6 @@ func (w *worker) send(packet common.RawBytes) error {
 		}
 		w.packetMemIPV4[checkSum] = now
 	}
-
 	bytesWritten, err := w.tunIO.Write(packet)
 	if err != nil {
 		increaseCounterMetric(w.Metrics.SendLocalError, 1)
@@ -181,7 +179,7 @@ func (w *worker) send(packet common.RawBytes) error {
 	return nil
 }
 
-func extractCheckSum(packet common.RawBytes) uint16 {
+func extractCheckSum(packet []byte) uint16 {
 	version := packet[0] & 0xF0
 	version = version >> 4
 	//check if IPV4
@@ -189,13 +187,4 @@ func extractCheckSum(packet common.RawBytes) uint16 {
 		return binary.BigEndian.Uint16(packet[10:12])
 	}
 	return 0
-}
-
-func contains(n uint16, mem []uint16) bool {
-	for _, v := range mem {
-		if v == n {
-			return true
-		}
-	}
-	return false
 }
